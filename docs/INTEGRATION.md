@@ -33,7 +33,7 @@ The system automatically discovers packages. To add a new package:
 
 1.  Create a directory: `mkdir my-package`
 2.  Add a `PKGBUILD` file inside.
-3.  (Optional) Add `update_config.sh` for custom hooks.
+3.  (Optional) Add `update_strategy.sh` for custom hooks.
 
 ## 3. How It Works
 

@@ -27,6 +27,7 @@ Create the `PKGBUILD` file. You can base it on existing packages in this repo.
     _reponame="upstream-repo"    # GitHub repository name
     ```
     *The CI system uses these to check for new GitHub Releases.*
+    *   **Custom Strategy**: If the package doesn't use GitHub Releases, you can use `update_strategy.sh`. See "Custom Update Strategies" below.
 
 ### 3. Add Auxiliary Files (Optional)
 *   **`.install` file**: If you need post-install/pre-remove hooks.
@@ -79,6 +80,34 @@ To remove a package from this automation system:
 2.  Remove the entry from `README.md`.
 3.  Commit and push.
 *Note: This does not remove the package from AUR, only from this automation repo.*
+
+## 🧩 Custom Update Strategies
+
+For packages that cannot use the standard GitHub Release checking mechanism, you can provide a custom `update_strategy.sh` script in your package directory.
+
+**File:** `package-name/update_strategy.sh`
+
+This script is sourced by the main `auto_update.sh`. You can define the following function to override the default behavior:
+
+```bash
+#!/bin/bash
+
+check_upstream_version() {
+    # 1. Fetch the latest version string from your source
+    local version=$(curl -s "https://example.com/api/version")
+
+    # 2. (Optional) Perform side-effects, e.g., updating other variables in PKGBUILD
+    # sed -i "s/^_custom_var=.*/_custom_var=\"$version\"/" PKGBUILD
+
+    # 3. Return ONLY the clean version number (without 'v' prefix)
+    echo "$version"
+}
+```
+
+**Requirements:**
+*   The function MUST output only the version string to stdout.
+*   The function MUST return exit code 0 on success, non-zero on failure.
+*   You do not need to define `_repouser` / `_reponame` in PKGBUILD if you use this strategy.
 
 ## 📏 Technical Standards
 
