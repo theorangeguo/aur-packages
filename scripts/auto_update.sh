@@ -10,7 +10,7 @@ set -e
 # - Updating PKGBUILD versions and checksums
 # - Building packages (verification)
 # - Pushing changes to AUR
-# - Custom hooks via update_config.sh
+# - Custom hooks via update_strategy.sh
 # ==============================================================================
 
 # Default Configuration
@@ -82,10 +82,42 @@ if [ ! -f "PKGBUILD" ]; then
     exit 1
 fi
 
+# Define a function for checking version so it can be overridden by update_strategy.sh
+check_upstream_version() {
+    if [ -z "$REPO_USER" ] || [ -z "$REPO_NAME" ]; then
+        log_error "Missing _repouser or _reponame in PKGBUILD, and no custom check_upstream_version provided."
+        return 1
+    fi
+
+    if ! command -v curl &> /dev/null; then
+        log_error "curl is not installed."
+        return 1
+    fi
+
+    local api_url="https://api.github.com/repos/$REPO_USER/$REPO_NAME/releases/latest"
+    local response
+    response=$(curl -sS "$api_url")
+
+    if [ -z "$response" ]; then
+        log_error "Empty response from GitHub API."
+        return 1
+    fi
+
+    local tag=$(echo "$response" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+    if [ -z "$tag" ]; then
+        log_error "Could not extract tag_name from response."
+        log_error "Response snippet: $(echo "$response" | head -n 5)"
+        return 1
+    fi
+
+    echo "$tag"
+}
+
 # Load Custom Hooks/Config if present
-if [ -f "update_config.sh" ]; then
-    log_info "Loading custom configuration from update_config.sh..."
-    source "update_config.sh"
+if [ -f "update_strategy.sh" ]; then
+    log_info "Loading custom configuration from update_strategy.sh..."
+    source "update_strategy.sh"
 fi
 
 # Parse PKGBUILD metadata
@@ -131,37 +163,6 @@ log_group_end
 # ------------------------------------------------------------------------------
 log_group_start "Check Upstream"
 
-# Define a function for checking version so it can be overridden by update_config.sh
-check_upstream_version() {
-    if [ -z "$REPO_USER" ] || [ -z "$REPO_NAME" ]; then
-        log_error "Missing _repouser or _reponame in PKGBUILD, and no custom check_upstream_version provided."
-        return 1
-    fi
-
-    if ! command -v curl &> /dev/null; then
-        log_error "curl is not installed."
-        return 1
-    fi
-
-    local api_url="https://api.github.com/repos/$REPO_USER/$REPO_NAME/releases/latest"
-    local response
-    response=$(curl -sS "$api_url")
-
-    if [ -z "$response" ]; then
-        log_error "Empty response from GitHub API."
-        return 1
-    fi
-
-    local tag=$(echo "$response" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-
-    if [ -z "$tag" ]; then
-        log_error "Could not extract tag_name from response."
-        log_error "Response snippet: $(echo "$response" | head -n 5)"
-        return 1
-    fi
-
-    echo "$tag"
-}
 
 # Run the check
 LATEST_TAG=$(check_upstream_version)
