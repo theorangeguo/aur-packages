@@ -276,24 +276,27 @@ if [ "$CI" = "true" ] && [ -n "$AUR_SSH_PRIVATE_KEY" ]; then
     log_info "Syncing files..."
     cp PKGBUILD .SRCINFO "$TEMP_AUR_DIR/"
 
+    # Copy local source files (excluding URLs)
+    grep -E "^\s*source" .SRCINFO | sed 's/^\s*[^=]*=\s*//' | grep -v '://' | while read -r src_file; do
+        if [ -f "$src_file" ]; then
+            log_info "Copying source file: $src_file"
+            cp "$src_file" "$TEMP_AUR_DIR/"
+        else
+            log_error "Source file not found: $src_file"
+        fi
+    done
+
     # Sync install files if present
     if [ -f "${PKG_NAME}.install" ]; then
         cp "${PKG_NAME}.install" "$TEMP_AUR_DIR/"
     fi
-
-    # Optional: copy other files if needed (patches, etc.)
-    # find . -name "*.patch" -exec cp {} "$TEMP_AUR_DIR/" \;
 
     pushd "$TEMP_AUR_DIR" > /dev/null
 
     git config user.name "$AUR_USERNAME"
     git config user.email "$AUR_EMAIL"
 
-    git add PKGBUILD .SRCINFO
-    if [ -f "${PKG_NAME}.install" ]; then
-        git add "${PKG_NAME}.install"
-    fi
-    # git add *.patch 2>/dev/null || true
+    git add .
 
     if git diff --staged --quiet; then
         log_info "No changes to commit."
