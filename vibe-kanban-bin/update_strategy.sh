@@ -29,7 +29,7 @@ check_upstream_version() {
     # The manifest only gives us the version (e.g. 0.0.143).
     # We must fetch the NPM package to find the BINARY_TAG in bin/download.js.
 
-    log_info "Fetching NPM package to discover binary tag..."
+    log_info "Fetching NPM package to discover binary tag..." >&2
     local npm_url="https://registry.npmjs.org/vibe-kanban/-/vibe-kanban-${version}.tgz"
     local tmp_tgz=$(mktemp)
 
@@ -41,7 +41,7 @@ check_upstream_version() {
         rm -f "$tmp_tgz"
 
         if [ -n "$binary_tag" ]; then
-            log_info "Found binary tag: $binary_tag"
+            log_info "Found binary tag: $binary_tag" >&2
             # Update _binary_tag in PKGBUILD immediately
             sed -i "s/^_binary_tag=.*/_binary_tag=$binary_tag/" PKGBUILD
         else
