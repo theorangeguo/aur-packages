@@ -34,10 +34,6 @@ check_upstream_version() {
         return 1
     fi
 
-    # SIDE EFFECT: Update _tag in PKGBUILD immediately
-    # We do this here because auto_update.sh only updates pkgver
-    sed -i "s/^_tag=.*/_tag=\"$full_tag\"/" PKGBUILD
-
     # Return the clean version number for auto_update.sh to handle pkgver
     echo "$version"
 }
