@@ -120,6 +120,17 @@ check_upstream_version() {
 *   **Install Scripts**:
     *   Name them strictly as `${pkgname}.install`.
     *   Include the standard feedback footer in `post_install`.
+    *   **Service Management**: If your package installs a systemd service, you **MUST** provide clear instructions in `post_install`, `post_upgrade`, and `post_remove`.
+        *   Explicitly state whether it is a User Level or System Level service.
+        *   If one level is not available (e.g., System Service for user-only tools), explicitly state "(System Service is not available for this package)".
+        *   Example format:
+            ```bash
+            echo ":: Service Management"
+            echo "   > User Level (Recommended):"
+            echo "     systemctl --user enable --now service-name.service"
+            echo "   > System Level:"
+            echo "     (System Service is not available for this package)"
+            ```
 
 ### Security & Scripting
 *   **Input Validation**: All scripts handling package names or paths MUST validate inputs against directory traversal (`..`) and restrict characters (alphanumeric + `.-_`).
