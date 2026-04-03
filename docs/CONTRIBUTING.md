@@ -1,142 +1,155 @@
 # Contributing & Packaging Guide
 
-This guide outlines the standard process for adding and maintaining packages in this repository. Following these steps ensures your package is correctly integrated into the CI/CD pipeline and documentation.
+This repository is template-driven. Each package directory declares a package via `package.conf`, with optional `hooks.sh` and `files/` overrides. `PKGBUILD` and `.SRCINFO` are generated only during local runs and CI.
 
 ## 📋 Standard Process for New Packages
 
 ### 1. Create Package Directory
-Create a new directory for your package. The directory name MUST match the `pkgname` in your `PKGBUILD`.
+Create a new directory whose name matches `PKGNAME`.
 
 ```bash
 mkdir my-package-name
-cd my-package-name
 ```
 
-### 2. Create PKGBUILD
-Create the `PKGBUILD` file. You can base it on existing packages in this repo.
+### 2. Create `package.conf`
+This is the package source of truth.
 
-**Critical Requirements:**
-*   **Header**: Include the packaging repository info.
-    ```bash
-    # Maintainer: Your Name <email>
-    # Packaging Repo: https://github.com/orange-guo/aur-packages
-    ```
-*   **Auto-Update Variables**: If you want the CI to automatically update the package, you MUST define these variables:
-    ```bash
-    _repouser="upstream-user"    # GitHub username of the upstream project
-    _reponame="upstream-repo"    # GitHub repository name
-    ```
-    *The CI system uses these to check for new GitHub Releases.*
-    *   **Custom Strategy**: If the package doesn't use GitHub Releases, you can use `update_strategy.sh`. See "Custom Update Strategies" below.
-
-### 3. Add Auxiliary Files (Optional)
-*   **`.install` file**: If you need post-install/pre-remove hooks.
-    *   *Tip*: Add a feedback link in `post_install()`:
-        ```bash
-        echo ":: Packaging issues? Report at: https://github.com/orange-guo/aur-packages"
-        ```
-*   **`SRCINFO`**: Do **NOT** commit `.SRCINFO` files. The CI/CD pipeline generates them automatically during the build process to ensure they are always consistent with the `PKGBUILD`.
-
-### 4. Local Verification
-Before committing, test the build locally using the manager script.
+Typical fields include:
 
 ```bash
-# From the repository root
-./scripts/ci_manager.sh run_update my-package-name --dry-run
+PKGNAME=my-package-name
+PACKAGE_TEMPLATE=binary-archive
+UPSTREAM_TYPE=github-release-assets
+
+PKGDESC="My package description"
+URL="https://github.com/upstream/project"
+LICENSES=('MIT')
+ARCHES=('x86_64')
+DEPENDS=()
+MAKEDEPENDS=()
+OPTIONS=('!strip')
+PROVIDES=('my-package-name')
+CONFLICTS=('my-package-name')
+
+UPSTREAM_REPO_USER="upstream-user"
+UPSTREAM_REPO_NAME="project"
+UPSTREAM_TAG_PREFIX="v"
+
+ASSET_SELECTOR_X86_64='^project_.*_linux_amd64\.tar\.gz$'
+SOURCE_RENAME_X86_64='${pkgname}-${pkgver}-x86_64.tar.gz'
+
+BINARY_NAME=my-binary
+INSTALL_BIN_PATH=/usr/bin/my-binary
+
+LOCAL_FILES=()
+DOC_FILES=()
+LICENSE_FILES=('LICENSE')
+
+INSTALL_MODE=generated
+SERVICE_MODE=none
 ```
-*This verifies dependencies, checksums, and the build process without pushing to AUR.*
 
-### 5. Update Documentation
-Once the package is ready, you **MUST** update the repository documentation:
+### 3. Add Overrides Only If Needed
 
-1.  **`README.md`**: Add the new package to the "Packages Managed" table.
-    ```markdown
-    | [package-name](https://aur.archlinux.org/packages/package-name) | Description | ![Build Status](...) |
-    ```
-    *Note: Use the same badge link as other packages; the workflow status is shared.*
+#### `hooks.sh`
+Add this only when the built-in upstream resolvers are not enough.
 
-### 6. Commit & Push
-Commit your changes. The CI system will automatically pick up the new folder.
-
-```bash
-git add my-package-name README.md
-git commit -m "feat: add new package my-package-name"
-git push
-```
-
-## 🔄 Maintenance
-
-### Manual Updates
-The CI runs automatically every 6 hours. If you need to trigger a manual update (e.g., to fix a build error without a version change):
-
-1.  Modify the `PKGBUILD` (e.g., increment `pkgrel`).
-2.  Commit the change.
-3.  The CI will detect the change and re-run.
-
-### Deprecating a Package
-To remove a package from this automation system:
-
-1.  Remove the package directory: `git rm -r my-package-name`
-2.  Remove the entry from `README.md`.
-3.  Commit and push.
-*Note: This does not remove the package from AUR, only from this automation repo.*
-
-## 🧩 Custom Update Strategies
-
-For packages that cannot use the standard GitHub Release checking mechanism, you can provide a custom `update_strategy.sh` script in your package directory.
-
-**File:** `package-name/update_strategy.sh`
-
-This script is sourced by the main `auto_update.sh`. You can define the following function to override the default behavior:
+Current rule: special upstream logic should live in `resolve_upstream_state()`.
 
 ```bash
 #!/bin/bash
 
-check_upstream_version() {
-    # 1. Fetch the latest version string from your source
-    local version=$(curl -s "https://example.com/api/version")
-
-    # 2. (Optional) Perform side-effects, e.g., updating other variables in PKGBUILD
-    # sed -i "s/^_custom_var=.*/_custom_var=\"$version\"/" PKGBUILD
-
-    # 3. Return ONLY the clean version number (without 'v' prefix)
-    echo "$version"
+resolve_upstream_state() {
+    RESOLVED_VERSION="1.2.3"
+    RESOLVED_SOURCE_URL_X86_64="https://example.com/my-package-1.2.3.tar.gz"
 }
 ```
 
-**Requirements:**
-*   The function MUST output only the version string to stdout.
-*   The function MUST return exit code 0 on success, non-zero on failure.
-*   You do not need to define `_repouser` / `_reponame` in PKGBUILD if you use this strategy.
+You may also set additional `STATE_*` variables for template rendering.
+
+#### `files/`
+Use this for static assets such as:
+- `LICENSE`
+- systemd service units
+- static `.install` scripts
+- other local packaging files
+
+### 4. Pick the Right Template
+
+Current built-in packaging templates:
+- `binary-archive` — zip/tar.gz style binary packages
+- `deb-repack` — `.deb` repackaging
+- `appimage-desktop` — AppImage extraction plus desktop/icon setup
+
+Current built-in upstream resolvers:
+- `github-release-assets`
+- `custom-hook`
+
+### 5. Local Verification
+Before committing, test the package locally from the repository root.
+
+```bash
+./scripts/ci_manager.sh run_update my-package-name --dry-run
+```
+
+This is the smallest meaningful test in this repo. It resolves upstream state, renders a temporary `PKGBUILD`, refreshes checksums, generates `.SRCINFO`, and verifies the build.
+
+Use `--force` when you need to re-run packaging logic even if the version matches AUR.
+
+### 6. Update Documentation
+When adding or removing packages, update `README.md`.
+
+### 7. Commit & Push
+Commit the package directory and docs changes.
+
+## 🔄 Maintenance
+
+### How updates work
+The scheduled workflow does this for each package:
+1. Discover package directories by `package.conf`
+2. Read current package state from the AUR repo
+3. Resolve upstream version and asset URLs
+4. Render a temporary `PKGBUILD`
+5. Refresh checksums and generate `.SRCINFO`
+6. Build locally in CI
+7. Push the rendered package contents to AUR
+
+### Packaging-only changes
+If upstream version stays the same but rendered package contents change, the automation bumps `pkgrel` based on the current AUR repo state.
+
+## 🧩 Special Upstreams
+
+If a package cannot use `github-release-assets`, implement `hooks.sh` with `resolve_upstream_state()`.
+
+Rules:
+- It must set `RESOLVED_VERSION`
+- It may set `RESOLVED_SOURCE_URL_X86_64`, `RESOLVED_SOURCE_URL_AARCH64`, and `STATE_*`
+- It must not edit generated `PKGBUILD` files directly
+- It should fail with a non-zero status on error
 
 ## 📏 Technical Standards
 
-### PKGBUILD Standards
-*   **Variable Definitions**:
-    *   `_repouser` and `_reponame` are **mandatory** for GitHub-based packages.
-    *   Do not modify `url` to point to this repo; keep it pointing to the upstream homepage.
-*   **License Installation**:
-    *   Custom licenses MUST be installed to `/usr/share/licenses/${pkgname}/`.
-*   **Install Scripts**:
-    *   Name them strictly as `${pkgname}.install`.
-    *   Include the standard feedback footer in `post_install`.
-    *   **Service Management**: If your package installs a systemd service, you **MUST** provide clear instructions in `post_install`, `post_upgrade`, and `post_remove`.
-        *   Explicitly state whether it is a User Level or System Level service.
-        *   If one level is not available (e.g., System Service for user-only tools), explicitly state "(System Service is not available for this package)".
-        *   Example format:
-            ```bash
-            echo ":: Service Management"
-            echo "   > User Level (Recommended):"
-            echo "     systemctl --user enable --now service-name.service"
-            echo "   > System Level:"
-            echo "     (System Service is not available for this package)"
-            ```
+### Package directory layout
 
-### Security & Scripting
-*   **Input Validation**: All scripts handling package names or paths MUST validate inputs against directory traversal (`..`) and restrict characters (alphanumeric + `.-_`).
-*   **Injection Prevention**: Use `printf %q` when passing variables to `su -c` or `bash -c` commands.
-*   **User Isolation**: Build operations MUST run as the `builder` user, never root.
+```text
+package-name/
+  package.conf
+  hooks.sh        # optional
+  files/          # optional
+```
 
-### Versioning
-*   **Upstream Tags**: The CI system automatically strips `v` prefixes from GitHub tags (e.g., `v1.2.3` -> `1.2.3`). Ensure your `pkgver` logic aligns with this.
+### Generated files
+- Do **NOT** commit `.SRCINFO`
+- Do **NOT** commit generated `PKGBUILD`
+- Treat `package.conf` as the canonical package definition
 
+### Service files and install scripts
+- Prefer `INSTALL_MODE=generated` for ordinary user-service packages
+- Use static files under `files/` when the install messaging is unusual or package-specific
+- If a service is installed, the install guidance must clearly distinguish User Level vs System Level service management
+
+### Security & scripting
+- Validate package paths and names
+- Keep special logic in `hooks.sh`, not in generated files
+- Build as non-root `builder`
+- Prefer simple, top-level declarations in `package.conf`

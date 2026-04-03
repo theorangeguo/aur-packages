@@ -15,10 +15,11 @@ This repository contains my maintained Arch User Repository (AUR) packages. The 
 
 The system uses a centralized manager script [`scripts/ci_manager.sh`](scripts/ci_manager.sh) to handle the entire lifecycle:
 
-1.  **Discovery**: Automatically scans the repository for packages (`PKGBUILD` files).
-2.  **Update**: Checks GitHub releases for upstream updates.
-3.  **Build**: Verifies the package builds successfully in a clean environment.
-4.  **Publish**: Pushes changes to AUR if all checks pass.
+1.  **Discovery**: Automatically scans the repository for package templates (`package.conf` files).
+2.  **Resolve**: Fetches upstream versions and asset URLs.
+3.  **Render**: Generates a temporary `PKGBUILD`, optional `.install`, and other packaging assets.
+4.  **Build**: Verifies the package builds successfully in a clean environment.
+5.  **Publish**: Pushes the rendered package contents to AUR if all checks pass.
 
 The workflow runs automatically **every 6 hours**.
 
@@ -52,6 +53,13 @@ sudo ./scripts/ci_manager.sh setup_user
 ## ➕ Adding a New Package
 
 Please refer to [CONTRIBUTING.md](docs/CONTRIBUTING.md) for the standard process of adding and maintaining packages.
+
+Each package directory now keeps only:
+- `package.conf` as the source of truth
+- optional `hooks.sh` for special upstream logic
+- optional `files/` for static assets such as service units or licenses
+
+`PKGBUILD` and `.SRCINFO` are generated only in temporary workspaces during local runs and CI.
 
 ## 🔑 Integration & Secrets
 
