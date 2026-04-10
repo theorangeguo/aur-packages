@@ -1,83 +1,75 @@
 # GitHub Actions Integration Guide
 
-This repository uses a custom CI pipeline to automate the maintenance of AUR packages. This document explains how to configure the integration and maintain the system.
+This repository uses a template-driven CI pipeline to automate AUR package maintenance.
 
 ## 1. Prerequisites
 
 ### GitHub Repository Settings
-Ensure your GitHub repository has the following configured:
-
-1.  Go to **Settings** > **Secrets and variables** > **Actions**.
-2.  Add the following **Repository secrets** (or variables):
+Configure these repository secrets or variables:
 
 | Name | Description | Required |
 |------|-------------|----------|
 | `AUR_SSH_PRIVATE_KEY` | SSH private key for AUR authentication. | **Yes** |
-| `AUR_USERNAME` | Your AUR username (e.g., `lbjlaq`). | **Yes** |
-| `AUR_EMAIL` | Email address for git commits. | **Yes** |
+| `AUR_USERNAME` | Your AUR username. | **Yes** |
+| `AUR_EMAIL` | Email address used for AUR commits. | **Yes** |
 
-**Note**: The private key must not be encrypted (no passphrase) for automated usage.
+The private key must be unencrypted.
 
-### AUR Account Setup
-1.  Generate an SSH key pair: `ssh-keygen -t ed25519 -f aur_key`
-2.  Login to [AUR](https://aur.archlinux.org/).
-3.  Upload the contents of `aur_key.pub` to your account settings.
-4.  Copy the contents of `aur_key` to the GitHub Secret `AUR_SSH_PRIVATE_KEY`.
+## 2. Package Configuration
 
-## 2. Configuration
+The pipeline auto-discovers packages by locating `package.conf` files.
 
-The pipeline configuration is centralized in two places:
+Each package directory should contain:
 
-### Package Configuration
-The system automatically discovers packages. To add a new package:
+```text
+package-name/
+  package.conf
+  hooks.sh        # optional
+  files/          # optional
+```
 
-1.  Create a directory: `mkdir my-package`
-2.  Add a `PKGBUILD` file inside.
-3.  (Optional) Add `update_strategy.sh` for custom hooks.
+`package.conf` is the source of truth. CI renders `PKGBUILD` and `.SRCINFO` only during execution.
 
 ## 3. How It Works
 
-The workflow is defined in `.github/workflows/aur-publish.yml` and delegates logic to `scripts/`.
+The workflow in `.github/workflows/aur-publish.yml` delegates all logic to `scripts/`.
 
 ### Phase 1: Discovery
-*   **Script**: `scripts/ci_manager.sh discover`
-*   **Action**: Scans the repository for directories containing `PKGBUILD`.
-*   **Output**: A JSON matrix of packages (e.g., `["package-a", "package-b"]`).
+- **Command**: `scripts/ci_manager.sh discover`
+- **Action**: scans for directories containing `package.conf`
+- **Output**: GitHub Actions matrix JSON
 
-### Phase 2: Execution (Parallel)
-For each package discovered, a new job is spawned:
+### Phase 2: Execution
+For each package:
 
-1.  **Environment Setup**:
-    *   Installs Arch Linux dependencies (`base-devel`, `pacman-contrib`, etc.).
-    *   Creates a non-root `builder` user (required for `makepkg`).
-
-2.  **Update Logic** (`scripts/auto_update.sh`):
-    *   **Check**: Fetches latest release from upstream (GitHub).
-    *   **Modify**: Updates `pkgver`, resets `pkgrel`, updates checksums.
-    *   **Build**: Runs `makepkg` to verify the build succeeds.
-    *   **Publish**: Clones the AUR repo, commits changes, and pushes.
+1. Install dependencies in the Arch container
+2. Create the non-root `builder` user
+3. Read the current `pkgver/pkgrel` from the AUR repo
+4. Resolve upstream version and asset URLs
+5. Render a temporary `PKGBUILD` and optional generated assets
+6. Run `updpkgsums`
+7. Generate `.SRCINFO`
+8. Build with `makepkg`
+9. Push the rendered package repo contents to AUR
 
 ## 4. Local Testing
 
-You can simulate the CI process locally using the manager script. This is useful for debugging before pushing.
-
-**Requirements**: An Arch Linux system (or container).
+Use the same manager script locally:
 
 ```bash
-# 1. Install dependencies
 sudo ./scripts/ci_manager.sh install
-
-# 2. Setup builder user (if needed)
 sudo ./scripts/ci_manager.sh setup_user
-
-# 3. Run update (Dry Run)
-# Syntax: ./scripts/ci_manager.sh run_update <directory> [flags]
 ./scripts/ci_manager.sh run_update antigravity-tools-bin --dry-run
 ```
 
+This is the repo's standard test path.
+
+When the manager is invoked as root, it switches to the `builder` user before running package builds. Non-root local runs use the current user.
+
 ## 5. Security Measures
 
-The scripts include several security protections:
-*   **Input Sanitization**: Package directories and upstream version tags are validated to prevent command injection.
-*   **Privilege Separation**: Builds run as a restricted `builder` user, never as root.
-*   **SSH Isolation**: SSH keys are stored in temporary files and securely deleted after use.
+The scripts enforce:
+- input sanitization for package paths
+- non-root builds via the `builder` user
+- temporary SSH key handling during push
+- package rendering from trusted local configs only
