@@ -25,6 +25,7 @@ load_package_config() {
     INSTALL_HINTS=("${INSTALL_HINTS[@]}")
     DESKTOP_CANDIDATES=("${DESKTOP_CANDIDATES[@]}")
     ICON_CANDIDATES=("${ICON_CANDIDATES[@]}")
+    PERSIST_STATE_KEYS=("${PERSIST_STATE_KEYS[@]}")
 
     [ -n "$PKGNAME" ] || die "PKGNAME is required in ${config_path}"
     [ "$PKGNAME" = "$PACKAGE_NAME" ] || die "Package directory must match PKGNAME: ${PACKAGE_NAME} != ${PKGNAME}"

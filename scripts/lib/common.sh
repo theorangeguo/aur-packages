@@ -177,3 +177,17 @@ render_common_source_arrays() {
         render_array_assignment "sha256sums_${arch}" "SKIP"
     done
 }
+
+render_persisted_state_assignments() {
+    local state_key
+    for state_key in "${PERSIST_STATE_KEYS[@]}"; do
+        [ -n "$state_key" ] || continue
+
+        local state_var="STATE_${state_key}"
+        local state_value=${!state_var}
+        [ -n "$state_value" ] || die "Missing persisted state value for ${state_var}"
+
+        local pkgbuild_var="_${state_key,,}"
+        render_string_assignment "$pkgbuild_var" "$state_value"
+    done
+}

@@ -28,6 +28,7 @@ DRY_RUN=false
 SKIP_BUILD=false
 PKG_DIR=""
 TMP_ROOT=""
+SSH_KEY_FILE=""
 AUR_REPO_EXISTS=false
 AUR_CURRENT_VER=""
 AUR_CURRENT_REL=0
@@ -45,6 +46,10 @@ show_help() {
 }
 
 cleanup() {
+    if [ -n "$SSH_KEY_FILE" ] && [ -f "$SSH_KEY_FILE" ]; then
+        rm -f "$SSH_KEY_FILE"
+    fi
+
     if [ -n "$TMP_ROOT" ] && [ -d "$TMP_ROOT" ]; then
         rm -rf "$TMP_ROOT"
     fi
@@ -125,24 +130,31 @@ publish_to_aur() {
         return 0
     fi
 
+    if [ "$CI" = "true" ] && [ -z "$AUR_SSH_PRIVATE_KEY" ]; then
+        die "AUR_SSH_PRIVATE_KEY is required to publish from CI"
+    fi
+
     if [ "$CI" = "true" ] && [ -n "$AUR_SSH_PRIVATE_KEY" ]; then
-        [ "$AUR_REPO_EXISTS" = true ] || die "Cannot push because the AUR repository does not exist yet."
+        local remote_url="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
+        SSH_KEY_FILE=$(mktemp)
+        printf '%s' "$AUR_SSH_PRIVATE_KEY" > "$SSH_KEY_FILE"
+        chmod 600 "$SSH_KEY_FILE"
 
-        local ssh_key_file
-        ssh_key_file=$(mktemp)
-        printf '%s' "$AUR_SSH_PRIVATE_KEY" > "$ssh_key_file"
-        chmod 600 "$ssh_key_file"
-        trap 'rm -f "$ssh_key_file"; cleanup' EXIT
+        if git -C "$AUR_REPO_DIR" remote get-url origin >/dev/null 2>&1; then
+            git -C "$AUR_REPO_DIR" remote set-url origin "$remote_url"
+        else
+            git -C "$AUR_REPO_DIR" remote add origin "$remote_url"
+        fi
 
-        git -C "$AUR_REPO_DIR" remote set-url origin "ssh://aur@aur.archlinux.org/${PKGNAME}.git"
         git -C "$AUR_REPO_DIR" config user.name "${AUR_USERNAME:-orange-guo}"
         git -C "$AUR_REPO_DIR" config user.email "${AUR_EMAIL:-aur@example.invalid}"
 
-        GIT_SSH_COMMAND="ssh -i $ssh_key_file -o StrictHostKeyChecking=no" \
+        GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no" \
             git -C "$AUR_REPO_DIR" commit -m "$commit_msg"
-        GIT_SSH_COMMAND="ssh -i $ssh_key_file -o StrictHostKeyChecking=no" \
+        GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no" \
             git -C "$AUR_REPO_DIR" push origin master
-        rm -f "$ssh_key_file"
+        rm -f "$SSH_KEY_FILE"
+        SSH_KEY_FILE=""
     else
         log_info "Skipping push (local run or missing AUR SSH key)."
         log_info "AUR repository prepared at: $AUR_REPO_DIR"
@@ -213,10 +225,12 @@ main() {
 
     build_and_stage_workspace
 
-    if [ -n "$AUR_CURRENT_VER" ] && [ "$TARGET_PKGVER" = "$AUR_CURRENT_VER" ] && aur_repo_has_staged_changes; then
+    if [ -n "$AUR_CURRENT_VER" ] && [ "$TARGET_PKGVER" = "$AUR_CURRENT_VER" ] && aur_repo_has_packaging_changes; then
         TARGET_PKGREL=$((AUR_CURRENT_REL + 1))
         log_info "Packaging content changed without upstream version change; bumping pkgrel to ${TARGET_PKGREL}."
         build_and_stage_workspace
+    elif [ -n "$AUR_CURRENT_VER" ] && [ "$TARGET_PKGVER" = "$AUR_CURRENT_VER" ] && aur_repo_has_staged_changes; then
+        log_info "Only sync metadata changed; keeping pkgrel at ${TARGET_PKGREL}."
     fi
 
     if ! aur_repo_has_staged_changes; then

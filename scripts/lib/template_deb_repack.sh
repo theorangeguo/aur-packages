@@ -38,6 +38,7 @@ _service_file=$(printf '%q' "$WORKSPACE_SERVICE_FILE_NAME")
 _service_install_path=$(printf '%q' "$service_path")
 $(render_array_assignment "_doc_files" "${DOC_FILES[@]}")
 $(render_array_assignment "_license_files" "${LICENSE_FILES[@]}")
+$(render_persisted_state_assignments)
 
 prepare() {
     rm -rf "\${srcdir}/_deb_extract" "\${srcdir}/_deb_root"
@@ -81,8 +82,4 @@ package() {
     fi
 }
 EOF
-
-    if declare -F render_package_append >/dev/null 2>&1; then
-        render_package_append >> "${workspace}/PKGBUILD"
-    fi
 }

@@ -17,9 +17,16 @@ resolve_upstream_state() {
     trap 'rm -f "$tmp_tgz"' RETURN
 
     if ! curl -fsSL "$npm_url" -o "$tmp_tgz" 2>/dev/null; then
-        if [ "$RESOLVED_VERSION" = "$AUR_CURRENT_VER" ] && [ -f "${AUR_REPO_DIR}/PKGBUILD" ]; then
+        STATE_BINARY_TAG=$(curl -fsSL -H "User-Agent: aur-packages-ci" "https://github.com/BloopAI/vibe-kanban/tags" 2>/dev/null \
+            | grep -oE "v${RESOLVED_VERSION}-[0-9]{14}" \
+            | sort -u \
+            | tail -n 1)
+
+        if [ -z "$STATE_BINARY_TAG" ] && [ "$RESOLVED_VERSION" = "$AUR_CURRENT_VER" ] && [ -f "${AUR_REPO_DIR}/PKGBUILD" ]; then
             STATE_BINARY_TAG=$(pkgbuild_var_from_file "${AUR_REPO_DIR}/PKGBUILD" "_binary_tag")
-        else
+        fi
+
+        if [ -z "$STATE_BINARY_TAG" ]; then
             die "Failed to download Vibe Kanban npm package metadata"
         fi
     else
@@ -29,8 +36,4 @@ resolve_upstream_state() {
     [ -n "$STATE_BINARY_TAG" ] || die "Could not extract BINARY_TAG from Vibe Kanban npm package"
 
     RESOLVED_SOURCE_URL_X86_64="https://npm-cdn.vibekanban.com/binaries/${STATE_BINARY_TAG}/linux-x64/vibe-kanban.zip"
-}
-
-render_package_append() {
-    printf '\n_binary_tag=%q\n' "$STATE_BINARY_TAG"
 }
