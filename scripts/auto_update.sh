@@ -1,324 +1,246 @@
 #!/bin/bash
 set -e
 
-# ==============================================================================
-# AUR Package Auto-Update Script
-# ==============================================================================
-# This script handles the automated update process for AUR packages in this monorepo.
-# It supports:
-# - Checking upstream GitHub releases
-# - Updating PKGBUILD versions and checksums
-# - Building packages (verification)
-# - Pushing changes to AUR
-# - Custom hooks via update_strategy.sh
-# ==============================================================================
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
 
-# Default Configuration
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/package_loader.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/upstream_github_release.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/upstream_custom_hook.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/render_install.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/template_binary_archive.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/template_deb_repack.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/template_appimage_desktop.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/aur_state.sh"
+
 FORCE_UPDATE=false
 DRY_RUN=false
 SKIP_BUILD=false
 PKG_DIR=""
-
-# Helper: Log with GitHub Actions grouping
-log_group_start() {
-    echo "::group::$1"
-}
-
-log_group_end() {
-    echo "::endgroup::"
-}
-
-log_info() {
-    echo "==> $1"
-}
-
-log_error() {
-    echo "!! ERROR: $1" >&2
-}
+TMP_ROOT=""
+SSH_KEY_FILE=""
+AUR_REPO_EXISTS=false
+AUR_CURRENT_VER=""
+AUR_CURRENT_REL=0
+TARGET_PKGVER=""
+TARGET_PKGREL=1
 
 show_help() {
     echo "Usage: ./auto_update.sh [package_dir] [options]"
     echo ""
     echo "Options:"
-    echo "  -f, --force       Force update even if version matches"
+    echo "  -f, --force       Force update flow even if version matches"
     echo "  --dry-run         Simulate run, do not push to AUR"
     echo "  --skip-build      Skip makepkg step (metadata update only)"
     echo "  -h, --help        Show this help"
 }
 
-# Parse Arguments
-ARGS=()
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        -f|--force) FORCE_UPDATE=true ;;
-        --dry-run) DRY_RUN=true ;;
-        --skip-build) SKIP_BUILD=true ;;
-        -h|--help) show_help; exit 0 ;;
-        -*) echo "Unknown parameter: $1"; show_help; exit 1 ;;
-        *) PKG_DIR="$1" ;;
+cleanup() {
+    if [ -n "$SSH_KEY_FILE" ] && [ -f "$SSH_KEY_FILE" ]; then
+        rm -f "$SSH_KEY_FILE"
+    fi
+
+    if [ -n "$TMP_ROOT" ] && [ -d "$TMP_ROOT" ]; then
+        rm -rf "$TMP_ROOT"
+    fi
+}
+
+trap cleanup EXIT
+
+dispatch_upstream_resolution() {
+    case "$UPSTREAM_TYPE" in
+        github-release-assets)
+            resolve_github_release_assets
+            ;;
+        custom-hook)
+            resolve_custom_upstream_state
+            ;;
+        *)
+            die "Unsupported UPSTREAM_TYPE: $UPSTREAM_TYPE"
+            ;;
     esac
-    shift
-done
-
-# Validation
-if [ -z "$PKG_DIR" ]; then
-    log_error "No package directory specified."
-    show_help
-    exit 1
-fi
-
-if [ ! -d "$PKG_DIR" ]; then
-    log_error "Directory '$PKG_DIR' does not exist."
-    exit 1
-fi
-
-# Enter Package Directory
-log_group_start "Initialization: $PKG_DIR"
-cd "$PKG_DIR"
-log_info "Working directory: $(pwd)"
-
-if [ ! -f "PKGBUILD" ]; then
-    log_error "PKGBUILD not found in $PKG_DIR"
-    exit 1
-fi
-
-# Define a function for checking version so it can be overridden by update_strategy.sh
-check_upstream_version() {
-    if [ -z "$REPO_USER" ] || [ -z "$REPO_NAME" ]; then
-        log_error "Missing _repouser or _reponame in PKGBUILD, and no custom check_upstream_version provided."
-        return 1
-    fi
-
-    if ! command -v curl &> /dev/null; then
-        log_error "curl is not installed."
-        return 1
-    fi
-
-    local api_url="https://api.github.com/repos/$REPO_USER/$REPO_NAME/releases/latest"
-    local response
-    response=$(curl -sS "$api_url")
-
-    if [ -z "$response" ]; then
-        log_error "Empty response from GitHub API."
-        return 1
-    fi
-
-    local tag=$(echo "$response" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-
-    if [ -z "$tag" ]; then
-        log_error "Could not extract tag_name from response."
-        log_error "Response snippet: $(echo "$response" | head -n 5)"
-        return 1
-    fi
-
-    echo "$tag"
 }
 
-# Load Custom Hooks/Config if present
-if [ -f "update_strategy.sh" ]; then
-    log_info "Loading custom configuration from update_strategy.sh..."
-    source "update_strategy.sh"
-fi
+build_and_stage_workspace() {
+    local workspace="${TMP_ROOT}/workspace-${TARGET_PKGREL}"
+    local makepkg_opts="-sf"
 
-# Parse PKGBUILD metadata
-# 1. Try to get variables directly from file (simple parsing)
-get_var() {
-    local var_name=$1
-    local line=$(grep "^$var_name=" PKGBUILD | head -n 1)
-    if [ -z "$line" ]; then
-        return
-    fi
+    rm -rf "$workspace"
+    mkdir -p "$workspace"
 
-    if [[ "$line" == *\"* ]]; then
-        echo "$line" | cut -d'"' -f2
-    else
-        echo "$line" | cut -d'=' -f2
-    fi
-}
+    prepare_workspace_assets "$workspace"
+    render_pkgbuild "$workspace"
 
-REPO_USER=$(get_var "_repouser")
-REPO_NAME=$(get_var "_reponame")
-PKG_NAME=$(get_var "pkgname")
-CURRENT_VER=$(get_var "pkgver")
-
-# Validation
-if [ -z "$PKG_NAME" ]; then
-    # Fallback to directory name if pkgname parsing fails
-    PKG_NAME=$(basename "$PKG_DIR")
-    log_info "Could not parse pkgname, using directory name: $PKG_NAME"
-fi
-
-# AUR Configuration
-AUR_REPO_URL="ssh://aur@aur.archlinux.org/${PKG_NAME}.git"
-AUR_USERNAME="${AUR_USERNAME:-lbjlaq}"
-AUR_EMAIL="${AUR_EMAIL:-youremail@example.com}"
-
-log_info "Package: $PKG_NAME"
-log_info "Upstream: $REPO_USER/$REPO_NAME"
-log_info "Current Version: $CURRENT_VER"
-log_group_end
-
-# ------------------------------------------------------------------------------
-# 1. Check Upstream Version
-# ------------------------------------------------------------------------------
-log_group_start "Check Upstream"
-
-
-# Run the check
-LATEST_TAG=$(check_upstream_version)
-
-if [ -z "$LATEST_TAG" ]; then
-    log_error "Failed to fetch upstream version."
-    exit 1
-fi
-
-# SECURITY: Sanitize version number to prevent injection
-# Allow only alphanumeric, dots, underscores, hyphens, and plus signs.
-if [[ ! "$LATEST_TAG" =~ ^v?[0-9a-zA-Z._+-]+$ ]]; then
-    log_error "Security Alert: Upstream tag contains invalid characters: '$LATEST_TAG'"
-    exit 1
-fi
-
-# Strip 'v' prefix if present
-NEW_VER=${LATEST_TAG#v}
-
-log_info "Upstream Version: $NEW_VER"
-
-if [ "$NEW_VER" == "$CURRENT_VER" ]; then
-    if [ "$FORCE_UPDATE" = true ]; then
-        log_info "Versions match, but forcing update..."
-    else
-        log_info "Package is up to date."
-        log_group_end
-        exit 0
-    fi
-else
-    log_info "New version available!"
-fi
-log_group_end
-
-# ------------------------------------------------------------------------------
-# 2. Update Metadata
-# ------------------------------------------------------------------------------
-log_group_start "Update Metadata"
-
-# Update pkgver
-sed -i "s/^pkgver=.*/pkgver=$NEW_VER/" PKGBUILD
-
-# Reset pkgrel if version changed
-if [ "$NEW_VER" != "$CURRENT_VER" ]; then
-    sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-    log_info "Reset pkgrel to 1"
-fi
-
-# Update checksums
-if ! command -v updpkgsums >/dev/null 2>&1; then
-    log_error "pacman-contrib not installed (missing updpkgsums)."
-    exit 1
-fi
-
-log_info "Running updpkgsums..."
-updpkgsums
-
-# Generate .SRCINFO
-log_info "Generating .SRCINFO..."
-makepkg --printsrcinfo > .SRCINFO
-
-log_group_end
-
-# ------------------------------------------------------------------------------
-# 3. Build & Verify
-# ------------------------------------------------------------------------------
-log_group_start "Build & Verify"
-
-if [ "$SKIP_BUILD" = true ]; then
-    log_info "Skipping build (--skip-build)"
-else
-    log_info "Running makepkg..."
-
-    MAKEPKG_OPTS="-sf"
-    if [ "$CI" = "true" ]; then
-        MAKEPKG_OPTS="$MAKEPKG_OPTS --noconfirm"
-    fi
-
-    if makepkg $MAKEPKG_OPTS; then
-        log_info "Build successful."
-        # Optional: Check if the artifact exists
-        # BUILT_PKG=$(find . -name "${PKG_NAME}-${NEW_VER}-*.pkg.tar.zst" | head -n 1)
-    else
-        log_error "Build failed."
-        exit 1
-    fi
-fi
-log_group_end
-
-# ------------------------------------------------------------------------------
-# 4. Publish to AUR
-# ------------------------------------------------------------------------------
-log_group_start "Publish to AUR"
-
-if [ "$CI" = "true" ] && [ -n "$AUR_SSH_PRIVATE_KEY" ]; then
-    log_info "Setting up SSH..."
-    SSH_KEY_FILE=$(mktemp)
-    echo "$AUR_SSH_PRIVATE_KEY" > "$SSH_KEY_FILE"
-    chmod 600 "$SSH_KEY_FILE"
-    export GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no"
-
-    # Cleanup trap
-    trap 'rm -f "$SSH_KEY_FILE"' EXIT
-
-    TEMP_AUR_DIR=$(mktemp -d)
-    trap 'rm -f "$SSH_KEY_FILE"; rm -rf "$TEMP_AUR_DIR"' EXIT
-
-    log_info "Cloning AUR repository ($AUR_REPO_URL)..."
-    git clone "$AUR_REPO_URL" "$TEMP_AUR_DIR"
-
-    log_info "Syncing files..."
-    cp PKGBUILD .SRCINFO "$TEMP_AUR_DIR/"
-
-    # Copy local source files (excluding URLs)
-    grep -E "^\s*source" .SRCINFO | sed 's/^\s*[^=]*=\s*//' | grep -v '://' | while read -r src_file; do
-        if [ -f "$src_file" ]; then
-            log_info "Copying source file: $src_file"
-            cp "$src_file" "$TEMP_AUR_DIR/"
+    log_group_start "Render + Verify (${TARGET_PKGVER}-${TARGET_PKGREL})"
+    (
+        cd "$workspace"
+        updpkgsums
+        makepkg --printsrcinfo > .SRCINFO
+        if [ "$SKIP_BUILD" = true ]; then
+            log_info "Skipping build (--skip-build)"
         else
-            log_error "Source file not found: $src_file"
+            if [ "$CI" = "true" ]; then
+                makepkg_opts="$makepkg_opts --noconfirm"
+            fi
+            makepkg $makepkg_opts
         fi
+    )
+    log_group_end
+
+    register_workspace_sync_file ".SRCINFO"
+    sync_workspace_to_aur_repo "$workspace" "${WORKSPACE_SYNC_FILES[@]}"
+}
+
+render_pkgbuild() {
+    local workspace=$1
+
+    case "$PACKAGE_TEMPLATE" in
+        binary-archive)
+            render_binary_archive_pkgbuild "$workspace"
+            ;;
+        deb-repack)
+            render_deb_repack_pkgbuild "$workspace"
+            ;;
+        appimage-desktop)
+            render_appimage_desktop_pkgbuild "$workspace"
+            ;;
+        *)
+            die "Unsupported PACKAGE_TEMPLATE: $PACKAGE_TEMPLATE"
+            ;;
+    esac
+}
+
+publish_to_aur() {
+    local commit_msg="update: ${TARGET_PKGVER}-${TARGET_PKGREL}"
+
+    if [ "$DRY_RUN" = true ]; then
+        log_info "[DRY RUN] Would commit: ${commit_msg}"
+        log_info "[DRY RUN] Staged files:"
+        git -C "$AUR_REPO_DIR" status --short
+        return 0
+    fi
+
+    if [ "$CI" = "true" ] && [ -z "$AUR_SSH_PRIVATE_KEY" ]; then
+        die "AUR_SSH_PRIVATE_KEY is required to publish from CI"
+    fi
+
+    if [ "$CI" = "true" ] && [ -n "$AUR_SSH_PRIVATE_KEY" ]; then
+        local remote_url="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
+        SSH_KEY_FILE=$(mktemp)
+        printf '%s' "$AUR_SSH_PRIVATE_KEY" > "$SSH_KEY_FILE"
+        chmod 600 "$SSH_KEY_FILE"
+
+        if git -C "$AUR_REPO_DIR" remote get-url origin >/dev/null 2>&1; then
+            git -C "$AUR_REPO_DIR" remote set-url origin "$remote_url"
+        else
+            git -C "$AUR_REPO_DIR" remote add origin "$remote_url"
+        fi
+
+        git -C "$AUR_REPO_DIR" config user.name "${AUR_USERNAME:-orange-guo}"
+        git -C "$AUR_REPO_DIR" config user.email "${AUR_EMAIL:-aur@example.invalid}"
+
+        GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no" \
+            git -C "$AUR_REPO_DIR" commit -m "$commit_msg"
+        GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no" \
+            git -C "$AUR_REPO_DIR" push origin master
+        rm -f "$SSH_KEY_FILE"
+        SSH_KEY_FILE=""
+    else
+        log_info "Skipping push (local run or missing AUR SSH key)."
+        log_info "AUR repository prepared at: $AUR_REPO_DIR"
+    fi
+}
+
+main() {
+    while [[ "$#" -gt 0 ]]; do
+        case $1 in
+            -f|--force) FORCE_UPDATE=true ;;
+            --dry-run) DRY_RUN=true ;;
+            --skip-build) SKIP_BUILD=true ;;
+            -h|--help) show_help; exit 0 ;;
+            -*) die "Unknown parameter: $1" ;;
+            *) PKG_DIR=$1 ;;
+        esac
+        shift
     done
 
-    # Sync install files if present
-    if [ -f "${PKG_NAME}.install" ]; then
-        cp "${PKG_NAME}.install" "$TEMP_AUR_DIR/"
-    fi
+    [ -n "$PKG_DIR" ] || {
+        show_help
+        die "No package directory specified."
+    }
 
-    pushd "$TEMP_AUR_DIR" > /dev/null
+    [[ "$PKG_DIR" =~ ^(\./)?[a-zA-Z0-9._-]+$ ]] || die "Invalid package directory: $PKG_DIR"
+    PKG_DIR=${PKG_DIR#./}
 
-    git config user.name "$AUR_USERNAME"
-    git config user.email "$AUR_EMAIL"
+    [ -d "$PKG_DIR" ] || die "Directory '$PKG_DIR' does not exist."
+    [ -f "$PKG_DIR/package.conf" ] || die "package.conf not found in '$PKG_DIR'."
 
-    git add .
+    cd "$REPO_ROOT"
 
-    if git diff --staged --quiet; then
-        log_info "No changes to commit."
+    require_cmd git
+    require_cmd makepkg
+    require_cmd updpkgsums
+
+    load_package_config "$PKG_DIR"
+    load_package_hooks
+
+    TMP_ROOT=$(mktemp -d)
+    AUR_DIR="${TMP_ROOT}/aur"
+    export SRCDEST="${TMP_ROOT}/srcdest"
+    export PKGDEST="${TMP_ROOT}/pkgdest"
+    mkdir -p "$SRCDEST" "$PKGDEST"
+
+    log_group_start "Initialization: ${PKG_DIR}"
+    prepare_aur_repo "$PKGNAME" "$AUR_DIR"
+    load_aur_state
+    log_info "Package: $PKGNAME"
+    log_info "Template: $PACKAGE_TEMPLATE"
+    log_info "Upstream Resolver: $UPSTREAM_TYPE"
+    log_info "Current AUR Version: ${AUR_CURRENT_VER:-<none>}"
+    log_info "Current AUR pkgrel: ${AUR_CURRENT_REL}"
+    log_group_end
+
+    log_group_start "Resolve Upstream"
+    dispatch_upstream_resolution
+    log_info "Resolved Upstream Version: $RESOLVED_VERSION"
+    log_group_end
+
+    TARGET_PKGVER=$RESOLVED_VERSION
+    if [ -n "$AUR_CURRENT_VER" ] && [ "$TARGET_PKGVER" = "$AUR_CURRENT_VER" ]; then
+        TARGET_PKGREL=${AUR_CURRENT_REL:-1}
+        [ "$TARGET_PKGREL" -ge 1 ] || TARGET_PKGREL=1
     else
-        COMMIT_MSG="update: $NEW_VER"
-        if [ "$DRY_RUN" = true ]; then
-            log_info "[DRY RUN] Would commit: $COMMIT_MSG"
-            log_info "[DRY RUN] Would push to master"
-        else
-            git commit -m "$COMMIT_MSG"
-            log_info "Pushing to AUR..."
-            git push origin master
-            log_info "Success!"
-        fi
+        TARGET_PKGREL=1
     fi
-    popd > /dev/null
-else
-    log_info "Skipping publish (Local run or missing SSH key)."
-    log_info "Manual steps to publish:"
-    log_info "  1. git clone $AUR_REPO_URL"
-    log_info "  2. cp PKGBUILD .SRCINFO <repo_dir>/"
-    log_info "  3. git commit & push"
-fi
 
-log_group_end
+    build_and_stage_workspace
+
+    if [ -n "$AUR_CURRENT_VER" ] && [ "$TARGET_PKGVER" = "$AUR_CURRENT_VER" ] && aur_repo_has_packaging_changes; then
+        TARGET_PKGREL=$((AUR_CURRENT_REL + 1))
+        log_info "Packaging content changed without upstream version change; bumping pkgrel to ${TARGET_PKGREL}."
+        build_and_stage_workspace
+    elif [ -n "$AUR_CURRENT_VER" ] && [ "$TARGET_PKGVER" = "$AUR_CURRENT_VER" ] && aur_repo_has_staged_changes; then
+        log_info "Only sync metadata changed; keeping pkgrel at ${TARGET_PKGREL}."
+    fi
+
+    if ! aur_repo_has_staged_changes; then
+        log_info "No changes to publish."
+        exit 0
+    fi
+
+    log_group_start "Publish to AUR"
+    publish_to_aur
+    log_group_end
+}
+
+main "$@"
