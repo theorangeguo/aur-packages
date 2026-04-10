@@ -16,21 +16,23 @@ resolve_upstream_state() {
     tmp_tgz=$(mktemp)
     trap 'rm -f "$tmp_tgz"' RETURN
 
-    if ! curl -fsSL "$npm_url" -o "$tmp_tgz" 2>/dev/null; then
+    if curl -fsSL "$npm_url" -o "$tmp_tgz" 2>/dev/null; then
+        STATE_BINARY_TAG=$(tar -xOf "$tmp_tgz" package/bin/download.js 2>/dev/null | grep 'BINARY_TAG =' | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1)
+    fi
+
+    if [ -z "$STATE_BINARY_TAG" ]; then
         STATE_BINARY_TAG=$(curl -fsSL -H "User-Agent: aur-packages-ci" "https://github.com/BloopAI/vibe-kanban/tags" 2>/dev/null \
             | grep -oE "v${RESOLVED_VERSION}-[0-9]{14}" \
             | sort -u \
             | tail -n 1)
+    fi
 
-        if [ -z "$STATE_BINARY_TAG" ] && [ "$RESOLVED_VERSION" = "$AUR_CURRENT_VER" ] && [ -f "${AUR_REPO_DIR}/PKGBUILD" ]; then
-            STATE_BINARY_TAG=$(pkgbuild_var_from_file "${AUR_REPO_DIR}/PKGBUILD" "_binary_tag")
-        fi
+    if [ -z "$STATE_BINARY_TAG" ] && [ "$RESOLVED_VERSION" = "$AUR_CURRENT_VER" ] && [ -f "${AUR_REPO_DIR}/PKGBUILD" ]; then
+        STATE_BINARY_TAG=$(pkgbuild_var_from_file "${AUR_REPO_DIR}/PKGBUILD" "_binary_tag")
+    fi
 
-        if [ -z "$STATE_BINARY_TAG" ]; then
-            die "Failed to download Vibe Kanban npm package metadata"
-        fi
-    else
-        STATE_BINARY_TAG=$(tar -xOf "$tmp_tgz" package/bin/download.js | grep 'BINARY_TAG =' | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1)
+    if [ -z "$STATE_BINARY_TAG" ]; then
+        die "Failed to resolve Vibe Kanban BINARY_TAG"
     fi
 
     [ -n "$STATE_BINARY_TAG" ] || die "Could not extract BINARY_TAG from Vibe Kanban npm package"
