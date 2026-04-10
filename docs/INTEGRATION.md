@@ -64,6 +64,8 @@ sudo ./scripts/ci_manager.sh setup_user
 
 This is the repo's standard test path.
 
+When the manager is invoked as root, it switches to the `builder` user before running package builds. Non-root local runs use the current user.
+
 ## 5. Security Measures
 
 The scripts enforce:

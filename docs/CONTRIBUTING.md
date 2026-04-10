@@ -65,7 +65,7 @@ resolve_upstream_state() {
 }
 ```
 
-You may also set additional `STATE_*` variables for template rendering.
+You may also set additional `STATE_*` variables for template rendering. If a state value must be preserved in the rendered `PKGBUILD`, declare it in `PERSIST_STATE_KEYS`, for example `PERSIST_STATE_KEYS=('BINARY_TAG')`.
 
 #### `files/`
 Use this for static assets such as:
@@ -124,7 +124,7 @@ If a package cannot use `github-release-assets`, implement `hooks.sh` with `reso
 Rules:
 - It must set `RESOLVED_VERSION`
 - It may set `RESOLVED_SOURCE_URL_X86_64`, `RESOLVED_SOURCE_URL_AARCH64`, and `STATE_*`
-- It must not edit generated `PKGBUILD` files directly
+- It should not edit generated `PKGBUILD` files directly; prefer `STATE_*` plus `PERSIST_STATE_KEYS` instead
 - It should fail with a non-zero status on error
 
 ## 📏 Technical Standards

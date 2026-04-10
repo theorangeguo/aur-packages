@@ -94,7 +94,8 @@ bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build] [--force]
 - Keep ordinary packages template-only.
 - Use `hooks.sh` only for special upstream resolution or genuinely exceptional packaging behavior.
 - `resolve_upstream_state()` should set `RESOLVED_VERSION` and optional `RESOLVED_SOURCE_URL_*` / `STATE_*` values.
-- Hooks must not edit generated `PKGBUILD` files directly.
+- If hook state must persist into rendered packaging files, declare it through `PERSIST_STATE_KEYS` in `package.conf`.
+- Hooks should not edit generated `PKGBUILD` files directly.
 
 ### Generated packaging files
 - Do not hand-maintain `PKGBUILD` in package directories.
@@ -125,6 +126,7 @@ bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build] [--force]
 ## Repo-specific gotchas
 - Upstream state resolution may use GitHub API or release-page scraping fallback when API access is unavailable.
 - Package updates compare against the current AUR repo, so packaging-only changes may bump `pkgrel` even when the upstream version is unchanged.
+- AUR sync tracks managed outputs via `.aur-managed-files` and preserves other unmanaged files.
 - `files/` assets are copied into temporary workspaces by basename; avoid basename collisions within one package.
 - Existing AUR repos may contain extra unmanaged files; the current sync logic preserves them.
 

@@ -47,6 +47,7 @@ _service_install_path=$(printf '%q' "$service_path")
 $(render_array_assignment "_desktop_candidates" "${DESKTOP_CANDIDATES[@]}")
 $(render_array_assignment "_icon_candidates" "${ICON_CANDIDATES[@]}")
 $(render_array_assignment "_license_files" "${LICENSE_FILES[@]}")
+$(render_persisted_state_assignments)
 
 prepare() {
     rm -rf "\${srcdir}/\${_appimage_appdir_name}"
@@ -111,8 +112,4 @@ package() {
     fi
 }
 EOF
-
-    if declare -F render_package_append >/dev/null 2>&1; then
-        render_package_append >> "${workspace}/PKGBUILD"
-    fi
 }
