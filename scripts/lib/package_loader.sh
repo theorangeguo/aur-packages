@@ -16,15 +16,21 @@ load_package_config() {
     LICENSES=("${LICENSES[@]}")
     DEPENDS=("${DEPENDS[@]}")
     MAKEDEPENDS=("${MAKEDEPENDS[@]}")
+    CHECKDEPENDS=("${CHECKDEPENDS[@]}")
+    OPTDEPENDS=("${OPTDEPENDS[@]}")
     OPTIONS=("${OPTIONS[@]}")
     PROVIDES=("${PROVIDES[@]}")
     CONFLICTS=("${CONFLICTS[@]}")
+    VALIDPGPKEYS=("${VALIDPGPKEYS[@]}")
     LOCAL_FILES=("${LOCAL_FILES[@]}")
+    PATCH_FILES=("${PATCH_FILES[@]}")
     DOC_FILES=("${DOC_FILES[@]}")
     LICENSE_FILES=("${LICENSE_FILES[@]}")
     INSTALL_HINTS=("${INSTALL_HINTS[@]}")
     DESKTOP_CANDIDATES=("${DESKTOP_CANDIDATES[@]}")
     ICON_CANDIDATES=("${ICON_CANDIDATES[@]}")
+    MESON_OPTIONS=("${MESON_OPTIONS[@]}")
+    CHECK_ARGS=("${CHECK_ARGS[@]}")
     PERSIST_STATE_KEYS=("${PERSIST_STATE_KEYS[@]}")
     TEST_PATHS=("${TEST_PATHS[@]}")
     TEST_EXECUTABLES=("${TEST_EXECUTABLES[@]}")
@@ -53,6 +59,9 @@ load_package_config() {
     UPSTREAM_ALLOW_PRERELEASE=${UPSTREAM_ALLOW_PRERELEASE:-false}
     DEB_RELOCATE_USR_LOCAL=${DEB_RELOCATE_USR_LOCAL:-false}
     APPIMAGE_APPDIR_NAME=${APPIMAGE_APPDIR_NAME:-squashfs-root}
+    SOURCE_DIR=${SOURCE_DIR:-$PKGNAME}
+    BUILD_DIR=${BUILD_DIR:-build}
+    RUN_CHECK=${RUN_CHECK:-false}
 
     case "$INSTALL_MODE" in
         none|generated|static) ;;
@@ -77,6 +86,10 @@ load_package_config() {
     if [ "$PACKAGE_TEMPLATE" = "binary-archive" ] || [ "$PACKAGE_TEMPLATE" = "appimage-desktop" ]; then
         [ -n "$BINARY_NAME" ] || die "BINARY_NAME is required for template ${PACKAGE_TEMPLATE}"
         [ -n "$INSTALL_BIN_PATH" ] || die "INSTALL_BIN_PATH is required for template ${PACKAGE_TEMPLATE}"
+    fi
+
+    if [ "$PACKAGE_TEMPLATE" = "source-meson" ]; then
+        [ -n "$SOURCE_RENAME" ] || die "SOURCE_RENAME is required for template ${PACKAGE_TEMPLATE}"
     fi
 
     if [ "$SERVICE_MODE" != "none" ]; then
