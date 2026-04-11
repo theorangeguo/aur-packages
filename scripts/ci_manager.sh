@@ -148,7 +148,7 @@ case "$COMMAND" in
             ${RUNTIME} run --rm \
                 -v "$PWD:/src:ro" \
                 archlinux:base-devel \
-                bash -lc "set -e && mkdir -p /work && cp -a /src/. /work/ && cd /work && chmod +x scripts/ci_manager.sh scripts/test_package.sh && ./scripts/ci_manager.sh install && ./scripts/ci_manager.sh setup_user && RUN_TEST_DIRECT=true ./scripts/ci_manager.sh run_test $(printf %q "$PKG_DIR")"
+                bash -lc "set -e && mkdir -p /work && cp -a /src/. /work/ && rm -rf /work/.git && cd /work && chmod +x scripts/ci_manager.sh scripts/test_package.sh && ./scripts/ci_manager.sh install && ./scripts/ci_manager.sh setup_user && RUN_TEST_DIRECT=true ./scripts/ci_manager.sh run_test $(printf %q "$PKG_DIR")"
         fi
         ;;
 
