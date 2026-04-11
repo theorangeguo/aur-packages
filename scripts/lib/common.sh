@@ -124,6 +124,10 @@ resolved_source_url_for_arch() {
     printf '%s' "${!var_name}"
 }
 
+resolved_common_source_url() {
+    printf '%s' "${RESOLVED_SOURCE_URL}"
+}
+
 resolved_source_name_for_arch() {
     local arch=$1
     local suffix
@@ -133,9 +137,19 @@ resolved_source_name_for_arch() {
 
     [ -n "$template" ] || die "Missing source rename template for architecture: $arch"
 
+	local pkgname=$PKGNAME
+	local pkgver=$TARGET_PKGVER
+	local carch=$arch
+	expand_template "$template"
+}
+
+resolved_common_source_name() {
+    local template=$SOURCE_RENAME
+
+    [ -n "$template" ] || die "Missing common source rename template"
+
     local pkgname=$PKGNAME
     local pkgver=$TARGET_PKGVER
-    local carch=$arch
     expand_template "$template"
 }
 
@@ -156,11 +170,21 @@ register_common_source_file() {
 }
 
 render_common_source_arrays() {
-    render_array_assignment "source" "${WORKSPACE_COMMON_SOURCE_FILES[@]}"
+    local common_sources=("${WORKSPACE_COMMON_SOURCE_FILES[@]}")
+    local common_source_url
+    common_source_url=$(resolved_common_source_url)
+
+    if [ -n "$common_source_url" ]; then
+        local common_source_name
+        common_source_name=$(resolved_common_source_name)
+        common_sources+=("${common_source_name}::${common_source_url}")
+    fi
+
+    render_array_assignment "source" "${common_sources[@]}"
 
     local common_checksums=()
     local _item
-    for _item in "${WORKSPACE_COMMON_SOURCE_FILES[@]}"; do
+    for _item in "${common_sources[@]}"; do
         common_checksums+=("SKIP")
     done
     render_array_assignment "sha256sums" "${common_checksums[@]}"

@@ -13,6 +13,12 @@ prepare_workspace_assets() {
         register_common_source_file "$(basename "$copied_path")"
     done
 
+    for relative_path in "${PATCH_FILES[@]}"; do
+        [ -n "$relative_path" ] || continue
+        copied_path=$(copy_package_asset "$PACKAGE_DIR" "$relative_path" "$workspace")
+        register_common_source_file "$(basename "$copied_path")"
+    done
+
     case "$SERVICE_MODE" in
         generated)
             WORKSPACE_SERVICE_FILE_NAME=$SERVICE_NAME
