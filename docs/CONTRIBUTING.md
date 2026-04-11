@@ -47,6 +47,8 @@ INSTALL_BIN_PATH=/usr/bin/my-binary
 LOCAL_FILES=()
 DOC_FILES=()
 LICENSE_FILES=('LICENSE')
+TEST_PATHS=()
+TEST_EXECUTABLES=()
 
 INSTALL_MODE=generated
 SERVICE_MODE=none
@@ -101,14 +103,27 @@ Current built-in upstream resolvers:
 - `github-release-assets`
 - `custom-hook`
 
+Template-driven install tests automatically validate common installed outputs such as:
+- `INSTALL_BIN_PATH`
+- generated or static service files
+- appimage desktop entries
+- license files under `/usr/share/licenses/${PKGNAME}/`
+
+Use `TEST_PATHS` and `TEST_EXECUTABLES` only when a package needs extra smoke-check assertions beyond the template defaults.
+
+Both fields must contain absolute installed paths. `TEST_EXECUTABLES` checks that the installed path exists and has the executable bit set; it does not run the command.
+
 ### 5. Local Verification
 Before committing, test the package locally from the repository root.
 
 ```bash
 ./scripts/ci_manager.sh run_update my-package-name --dry-run
+./scripts/ci_manager.sh run_test my-package-name
 ```
 
 This is the smallest meaningful test in this repo. It resolves upstream state, renders a temporary `PKGBUILD`, refreshes checksums, generates `.SRCINFO`, and verifies the build.
+
+`run_test` is the stronger validation path. It runs in an Arch container, builds the package, installs it with `pacman -U`, and checks the installed files.
 
 Use `--force` when you need to re-run packaging logic even if the version matches AUR.
 
