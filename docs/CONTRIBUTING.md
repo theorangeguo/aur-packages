@@ -27,9 +27,12 @@ LICENSES=('MIT')
 ARCHES=('x86_64')
 DEPENDS=()
 MAKEDEPENDS=()
+CHECKDEPENDS=()
+OPTDEPENDS=()
 OPTIONS=('!strip')
 PROVIDES=('my-package-name')
 CONFLICTS=('my-package-name')
+VALIDPGPKEYS=()
 
 UPSTREAM_REPO_USER="upstream-user"
 UPSTREAM_REPO_NAME="project"
@@ -80,6 +83,19 @@ Current built-in packaging templates:
 - `binary-archive` — zip/tar.gz style binary packages
 - `deb-repack` — `.deb` repackaging
 - `appimage-desktop` — AppImage extraction plus desktop/icon setup
+- `source-meson` — source builds using Meson/Ninja with optional patches
+
+Typical extra fields for `source-meson`:
+
+```bash
+SOURCE_RENAME='${pkgname}'
+SOURCE_DIR='${pkgname}'
+BUILD_DIR=build
+PATCH_FILES=('files/0001-example.patch')
+MESON_OPTIONS=('-Dexamples=false')
+RUN_CHECK=false
+CHECK_ARGS=()
+```
 
 Current built-in upstream resolvers:
 - `github-release-assets`
@@ -123,7 +139,7 @@ If a package cannot use `github-release-assets`, implement `hooks.sh` with `reso
 
 Rules:
 - It must set `RESOLVED_VERSION`
-- It may set `RESOLVED_SOURCE_URL_X86_64`, `RESOLVED_SOURCE_URL_AARCH64`, and `STATE_*`
+- It may set `RESOLVED_SOURCE_URL`, `RESOLVED_SOURCE_URL_X86_64`, `RESOLVED_SOURCE_URL_AARCH64`, and `STATE_*`
 - It should not edit generated `PKGBUILD` files directly; prefer `STATE_*` plus `PERSIST_STATE_KEYS` instead
 - It should fail with a non-zero status on error
 
