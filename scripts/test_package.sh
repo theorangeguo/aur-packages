@@ -20,6 +20,9 @@ source "${SCRIPT_DIR}/lib/template_binary_archive.sh"
 source "${SCRIPT_DIR}/lib/template_deb_repack.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/template_appimage_desktop.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/template_source_meson.sh"
+
 PKG_DIR=""
 TMP_ROOT=""
 TARGET_PKGVER=""
@@ -64,6 +67,9 @@ render_pkgbuild() {
         appimage-desktop)
             render_appimage_desktop_pkgbuild "$workspace"
             ;;
+        source-meson)
+            render_source_meson_pkgbuild "$workspace"
+            ;;
         *)
             die "Unsupported PACKAGE_TEMPLATE: $PACKAGE_TEMPLATE"
             ;;
@@ -77,9 +83,12 @@ build_package_as_builder() {
     cat > "$builder_script" <<EOF
 #!/bin/bash
 set -e
+source $(printf '%q' "${SCRIPT_DIR}/lib/common.sh")
+$(render_array_assignment "VALIDPGPKEYS" "${VALIDPGPKEYS[@]}")
 export SRCDEST=$(printf '%q' "$SRCDEST")
 export PKGDEST=$(printf '%q' "$PKGDEST")
 cd $(printf '%q' "$workspace")
+ensure_valid_pgp_keys
 updpkgsums
 makepkg --printsrcinfo > .SRCINFO
 makepkg -sf --noconfirm
