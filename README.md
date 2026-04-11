@@ -21,7 +21,9 @@ The system uses a centralized manager script [`scripts/ci_manager.sh`](scripts/c
 4.  **Build**: Verifies the package builds successfully in a clean environment.
 5.  **Publish**: Pushes the rendered package contents to AUR if all checks pass.
 
-The workflow runs automatically **every 6 hours**.
+There is also a package validation workflow that reuses the same dynamic package discovery, then builds and installs each package in an Arch container.
+
+The publish workflow runs automatically **every 6 hours**. The validation workflow runs on pull requests, pushes to `main`, and manual dispatches.
 
 ## 💻 Local Usage
 
@@ -49,6 +51,13 @@ sudo ./scripts/ci_manager.sh setup_user
 ```bash
 ./scripts/ci_manager.sh run_update antigravity-tools-bin --force --dry-run
 ```
+
+**4. Run Containerized Install Test:**
+```bash
+./scripts/ci_manager.sh run_test antigravity-tools-bin
+```
+
+This path uses an ephemeral Arch container locally, builds the package, installs it with `pacman -U`, and runs smoke checks against the installed files.
 
 ## ➕ Adding a New Package
 

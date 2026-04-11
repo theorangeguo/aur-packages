@@ -1,0 +1,45 @@
+name: Package Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has_packages: ${{ steps.set-matrix.outputs.has_packages }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: set-matrix
+        run: |
+          chmod +x scripts/ci_manager.sh
+          ./scripts/ci_manager.sh discover
+
+  test:
+    needs: discovery
+    runs-on: ubuntu-latest
+    if: needs.discovery.outputs.has_packages == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discovery.outputs.matrix) }}
+
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package install test
+        env:
+          CI: true
+        run: |
+          chmod +x scripts/ci_manager.sh scripts/test_package.sh
+          ./scripts/ci_manager.sh install
+          ./scripts/ci_manager.sh setup_user
+          ./scripts/ci_manager.sh run_test "${{ matrix.package }}"

@@ -4,6 +4,20 @@ set -e
 COMMAND=$1
 shift || true
 
+detect_container_runtime() {
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        printf 'docker'
+        return 0
+    fi
+
+    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+        printf 'podman'
+        return 0
+    fi
+
+    return 1
+}
+
 log() {
     echo "==> [CI Manager] $1"
 }
@@ -18,14 +32,20 @@ case "$COMMAND" in
         done < <(find . -maxdepth 2 -name package.conf | sort)
 
         if [ -z "$GITHUB_OUTPUT" ]; then
-            printf '%s\n' "${PACKAGES[@]}"
+            if [ "${#PACKAGES[@]}" -gt 0 ]; then
+                printf '%s\n' "${PACKAGES[@]}"
+            fi
         else
             if ! command -v jq >/dev/null 2>&1; then
                 sudo apt-get update && sudo apt-get install -y jq || true
             fi
 
             count=${#PACKAGES[@]}
-            json_array=$(printf '%s\n' "${PACKAGES[@]}" | jq -R . | jq -sc .)
+            if [ "$count" -gt 0 ]; then
+                json_array=$(printf '%s\n' "${PACKAGES[@]}" | jq -R . | jq -sc .)
+            else
+                json_array='[]'
+            fi
 
             echo "matrix={\"package\": $json_array}" >> "$GITHUB_OUTPUT"
 
@@ -97,8 +117,43 @@ case "$COMMAND" in
         fi
         ;;
 
+    run_test)
+        PKG_DIR=$1
+        shift || true
+
+        if [[ ! "$PKG_DIR" =~ ^(\./)?[a-zA-Z0-9._-]+$ ]]; then
+            echo "!! ERROR: Invalid package directory name: $PKG_DIR"
+            exit 1
+        fi
+
+        PKG_DIR=${PKG_DIR#./}
+
+        [ -f "$PKG_DIR/package.conf" ] || {
+            echo "!! ERROR: package.conf not found in $PKG_DIR"
+            exit 1
+        }
+
+        chmod +x scripts/test_package.sh
+
+        if [ "$RUN_TEST_DIRECT" = "true" ] || [ "$CI" = "true" ]; then
+            log "Running install test directly in current Arch environment..."
+            bash scripts/test_package.sh "$PKG_DIR"
+        else
+            RUNTIME=$(detect_container_runtime) || {
+                echo "!! ERROR: docker or podman is required for local package tests"
+                exit 1
+            }
+
+            log "Running install test in ephemeral ${RUNTIME} container..."
+            ${RUNTIME} run --rm \
+                -v "$PWD:/src:ro" \
+                archlinux:base-devel \
+                bash -lc "set -e && mkdir -p /work && cp -a /src/. /work/ && cd /work && chmod +x scripts/ci_manager.sh scripts/test_package.sh && ./scripts/ci_manager.sh install && ./scripts/ci_manager.sh setup_user && RUN_TEST_DIRECT=true ./scripts/ci_manager.sh run_test $(printf %q "$PKG_DIR")"
+        fi
+        ;;
+
     *)
-        echo "Usage: $0 {discover|install|setup_user|run_update <pkg> [args]}"
+        echo "Usage: $0 {discover|install|setup_user|run_update <pkg> [args]|run_test <pkg>}"
         exit 1
         ;;
 esac
