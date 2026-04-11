@@ -21,6 +21,8 @@ source "${SCRIPT_DIR}/lib/template_deb_repack.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/template_appimage_desktop.sh"
 # shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/template_source_meson.sh"
+# shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/aur_state.sh"
 
 FORCE_UPDATE=false
@@ -113,6 +115,9 @@ render_pkgbuild() {
             ;;
         appimage-desktop)
             render_appimage_desktop_pkgbuild "$workspace"
+            ;;
+        source-meson)
+            render_source_meson_pkgbuild "$workspace"
             ;;
         *)
             die "Unsupported PACKAGE_TEMPLATE: $PACKAGE_TEMPLATE"
