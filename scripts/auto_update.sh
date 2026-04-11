@@ -86,6 +86,7 @@ build_and_stage_workspace() {
     log_group_start "Render + Verify (${TARGET_PKGVER}-${TARGET_PKGREL})"
     (
         cd "$workspace"
+        ensure_valid_pgp_keys
         updpkgsums
         makepkg --printsrcinfo > .SRCINFO
         if [ "$SKIP_BUILD" = true ]; then
@@ -142,7 +143,7 @@ publish_to_aur() {
     if [ "$CI" = "true" ] && [ -n "$AUR_SSH_PRIVATE_KEY" ]; then
         local remote_url="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
         SSH_KEY_FILE=$(mktemp)
-        printf '%s' "$AUR_SSH_PRIVATE_KEY" > "$SSH_KEY_FILE"
+        printf '%s\n' "$AUR_SSH_PRIVATE_KEY" | tr -d '\r' > "$SSH_KEY_FILE"
         chmod 600 "$SSH_KEY_FILE"
 
         if git -C "$AUR_REPO_DIR" remote get-url origin >/dev/null 2>&1; then
