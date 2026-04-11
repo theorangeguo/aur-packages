@@ -215,3 +215,28 @@ render_persisted_state_assignments() {
         render_string_assignment "$pkgbuild_var" "$state_value"
     done
 }
+
+ensure_valid_pgp_keys() {
+    [ "${#VALIDPGPKEYS[@]}" -gt 0 ] || return 0
+
+    require_cmd gpg
+
+    local key
+    local keyserver
+    for key in "${VALIDPGPKEYS[@]}"; do
+        [ -n "$key" ] || continue
+
+        if gpg --list-keys "$key" >/dev/null 2>&1; then
+            continue
+        fi
+
+        log_info "Importing PGP key: $key"
+        for keyserver in hkps://keyserver.ubuntu.com hkps://keys.openpgp.org; do
+            if gpg --batch --keyserver "$keyserver" --recv-keys "$key" >/dev/null 2>&1; then
+                break
+            fi
+        done
+
+        gpg --list-keys "$key" >/dev/null 2>&1 || die "Failed to import required PGP key: $key"
+    done
+}

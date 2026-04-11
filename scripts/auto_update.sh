@@ -86,6 +86,7 @@ build_and_stage_workspace() {
     log_group_start "Render + Verify (${TARGET_PKGVER}-${TARGET_PKGREL})"
     (
         cd "$workspace"
+        ensure_valid_pgp_keys
         updpkgsums
         makepkg --printsrcinfo > .SRCINFO
         if [ "$SKIP_BUILD" = true ]; then
