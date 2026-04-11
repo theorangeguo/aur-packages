@@ -10,6 +10,7 @@ This repository contains my maintained Arch User Repository (AUR) packages. The 
 | [cli-proxy-api-bin](https://aur.archlinux.org/packages/cli-proxy-api-bin) | Proxy server providing OpenAI/Gemini/Claude compatible API interfaces | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 | [fingerprint-chromium-bin](https://aur.archlinux.org/packages/fingerprint-chromium-bin) | Fingerprint Chromium (Ungoogled Chromium with fingerprinting protection) | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 | [vibe-kanban-bin](https://aur.archlinux.org/packages/vibe-kanban-bin) | AI-powered Kanban board | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [wlroots0.20-vmwgfx](https://aur.archlinux.org/packages/wlroots0.20-vmwgfx) | wlroots 0.20 with a vmwgfx compatibility patch for VMware environments | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 
 ## 🛠 Automation Workflow
 
