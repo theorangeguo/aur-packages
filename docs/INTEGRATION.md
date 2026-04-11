@@ -1,11 +1,15 @@
 # GitHub Actions Integration Guide
 
-This repository uses a template-driven CI pipeline to automate AUR package maintenance.
+This repository uses a template-driven CI pipeline to automate AUR package maintenance and package validation.
+
+Two workflows matter:
+- `.github/workflows/aur-publish.yml` for scheduled/manual publish to AUR
+- `.github/workflows/package-test.yml` for build+install verification on pull requests, pushes, and manual runs
 
 ## 1. Prerequisites
 
 ### GitHub Repository Settings
-Configure these repository secrets or variables:
+For publishing, configure these repository secrets or variables:
 
 | Name | Description | Required |
 |------|-------------|----------|
@@ -14,6 +18,8 @@ Configure these repository secrets or variables:
 | `AUR_EMAIL` | Email address used for AUR commits. | **Yes** |
 
 The private key must be unencrypted.
+
+`package-test.yml` does not require AUR publishing secrets.
 
 ## 2. Package Configuration
 
@@ -32,25 +38,29 @@ package-name/
 
 ## 3. How It Works
 
-The workflow in `.github/workflows/aur-publish.yml` delegates all logic to `scripts/`.
+The workflows in `.github/workflows/aur-publish.yml` and `.github/workflows/package-test.yml` delegate all logic to `scripts/`.
+
+The validation workflow reuses the same discovery matrix, but runs `./scripts/ci_manager.sh run_test <package_dir>` instead of publishing.
 
 ### Phase 1: Discovery
 - **Command**: `scripts/ci_manager.sh discover`
 - **Action**: scans for directories containing `package.conf`
 - **Output**: GitHub Actions matrix JSON
 
-### Phase 2: Execution
-For each package:
+### Phase 2: Validation execution
+For each package in `package-test.yml`:
 
 1. Install dependencies in the Arch container
 2. Create the non-root `builder` user
-3. Read the current `pkgver/pkgrel` from the AUR repo
-4. Resolve upstream version and asset URLs
-5. Render a temporary `PKGBUILD` and optional generated assets
-6. Run `updpkgsums`
-7. Generate `.SRCINFO`
-8. Build with `makepkg`
-9. Push the rendered package repo contents to AUR
+3. Resolve upstream version and asset URLs
+4. Render a temporary `PKGBUILD` and optional generated assets
+5. Run `updpkgsums`
+6. Generate `.SRCINFO`
+7. Build with `makepkg`
+8. Install the built package with `pacman -U`
+9. Run smoke checks against the installed files
+
+For `aur-publish.yml`, the build path continues from there by syncing and pushing the rendered package contents to AUR.
 
 ## 4. Local Testing
 
@@ -60,9 +70,12 @@ Use the same manager script locally:
 sudo ./scripts/ci_manager.sh install
 sudo ./scripts/ci_manager.sh setup_user
 ./scripts/ci_manager.sh run_update antigravity-tools-bin --dry-run
+./scripts/ci_manager.sh run_test antigravity-tools-bin
 ```
 
 This is the repo's standard test path.
+
+`run_test` uses an ephemeral Arch container locally and the job container in GitHub Actions. It builds the package, installs it, and verifies expected files.
 
 When the manager is invoked as root, it switches to the `builder` user before running package builds. Non-root local runs use the current user.
 

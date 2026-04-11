@@ -12,8 +12,10 @@
 - `docs/CONTRIBUTING.md`
 - `docs/INTEGRATION.md`
 - `.github/workflows/aur-publish.yml`
+- `.github/workflows/package-test.yml`
 - `scripts/ci_manager.sh`
 - `scripts/auto_update.sh`
+- `scripts/test_package.sh`
 - `scripts/lib/`
 
 ## Repository facts and local rules
@@ -26,7 +28,8 @@
 
 ## Repository workflow
 - Main flow: discover packages -> read AUR state -> resolve upstream -> render temporary `PKGBUILD` -> refresh checksums -> generate `.SRCINFO` -> build -> publish to AUR.
-- Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh run_update <package_dir> ...`, `scripts/auto_update.sh <package_dir> ...`
+- Validation flow: discover packages -> resolve upstream -> render temporary `PKGBUILD` -> build -> install package in a container -> run smoke checks.
+- Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh run_update <package_dir> ...`, `scripts/ci_manager.sh run_test <package_dir>`, `scripts/auto_update.sh <package_dir> ...`, `scripts/test_package.sh <package_dir>`
 - When touching update logic, inspect `scripts/auto_update.sh`, the relevant files under `scripts/lib/`, and any package-local `hooks.sh`.
 
 ## Build / lint / test / verification commands
@@ -40,10 +43,12 @@ sudo ./scripts/ci_manager.sh setup_user
 ### Preferred verification for one package
 ```bash
 ./scripts/ci_manager.sh run_update <package_dir> --dry-run
+./scripts/ci_manager.sh run_test <package_dir>
 ```
 - This is the repo's closest equivalent to a standard test command.
 - It resolves upstream metadata, renders temporary packaging files, refreshes checksums, generates `.SRCINFO`, and verifies one package build.
 - Add `--force` to re-run packaging logic even when the upstream version matches AUR.
+- `run_test` is the stronger validation path: it builds the package, installs it, and performs smoke checks against the installed files.
 
 ### Lower-level updater
 ```bash
@@ -58,7 +63,7 @@ bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build] [--force]
 ## “Single test” guidance
 - There is no unit-test framework in this repo.
 - The smallest meaningful verification unit is one package directory.
-- When asked to run a single test, use `./scripts/ci_manager.sh run_update <package_dir> --dry-run`.
+- When asked to run a single test, prefer `./scripts/ci_manager.sh run_test <package_dir>` for install verification, or `./scripts/ci_manager.sh run_update <package_dir> --dry-run` for publish-path verification.
 - Use `--skip-build` only for metadata-only debugging when build verification is intentionally unnecessary.
 
 ## Code style guidelines
@@ -88,6 +93,7 @@ bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build] [--force]
 - Prefer explicit arrays like `ARCHES=('x86_64')`, `DEPENDS=()`, `LICENSES=('MIT')`.
 - Template selection should be declarative: `PACKAGE_TEMPLATE=...`, `UPSTREAM_TYPE=...`.
 - For GitHub-backed packages, use `UPSTREAM_REPO_USER`, `UPSTREAM_REPO_NAME`, `UPSTREAM_TAG_PREFIX`, and `ASSET_SELECTOR_*` fields.
+- If install smoke checks need package-specific assertions, use `TEST_PATHS` and `TEST_EXECUTABLES`.
 - Prefer package-local static files under `files/` over embedding large blobs in scripts.
 
 ### Template / hook boundaries

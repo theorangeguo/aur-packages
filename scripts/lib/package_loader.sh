@@ -32,6 +32,8 @@ load_package_config() {
     MESON_OPTIONS=("${MESON_OPTIONS[@]}")
     CHECK_ARGS=("${CHECK_ARGS[@]}")
     PERSIST_STATE_KEYS=("${PERSIST_STATE_KEYS[@]}")
+    TEST_PATHS=("${TEST_PATHS[@]}")
+    TEST_EXECUTABLES=("${TEST_EXECUTABLES[@]}")
 
     [ -n "$PKGNAME" ] || die "PKGNAME is required in ${config_path}"
     [ "$PKGNAME" = "$PACKAGE_NAME" ] || die "Package directory must match PKGNAME: ${PACKAGE_NAME} != ${PKGNAME}"
@@ -60,6 +62,21 @@ load_package_config() {
     SOURCE_DIR=${SOURCE_DIR:-$PKGNAME}
     BUILD_DIR=${BUILD_DIR:-build}
     RUN_CHECK=${RUN_CHECK:-false}
+
+    case "$INSTALL_MODE" in
+        none|generated|static) ;;
+        *) die "Unsupported INSTALL_MODE in ${config_path}: ${INSTALL_MODE}" ;;
+    esac
+
+    case "$SERVICE_MODE" in
+        none|generated|static) ;;
+        *) die "Unsupported SERVICE_MODE in ${config_path}: ${SERVICE_MODE}" ;;
+    esac
+
+    case "$SERVICE_SCOPE" in
+        user|system) ;;
+        *) die "Unsupported SERVICE_SCOPE in ${config_path}: ${SERVICE_SCOPE}" ;;
+    esac
 
     if [ "$UPSTREAM_TYPE" = "github-release-assets" ]; then
         [ -n "$UPSTREAM_REPO_USER" ] || die "UPSTREAM_REPO_USER is required for github-release-assets"
@@ -92,6 +109,18 @@ load_package_config() {
     if [ "$INSTALL_MODE" = "static" ]; then
         [ -n "$INSTALL_FILE" ] || die "INSTALL_FILE is required when INSTALL_MODE=static"
     fi
+
+    local test_path
+    for test_path in "${TEST_PATHS[@]}"; do
+        [ -z "$test_path" ] && continue
+        [[ "$test_path" = /* ]] || die "TEST_PATHS entries must be absolute paths in ${config_path}: ${test_path}"
+    done
+
+    local test_executable
+    for test_executable in "${TEST_EXECUTABLES[@]}"; do
+        [ -z "$test_executable" ] && continue
+        [[ "$test_executable" = /* ]] || die "TEST_EXECUTABLES entries must be absolute paths in ${config_path}: ${test_executable}"
+    done
 }
 
 load_package_hooks() {
