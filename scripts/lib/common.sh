@@ -55,6 +55,14 @@ render_string_assignment() {
     printf '%s=%q\n' "$name" "$value"
 }
 
+render_pkgbuild_header() {
+    cat <<EOF
+# Maintainer: orange-guo
+# Packaging Repo: ${PACKAGING_REPO_URL}
+
+EOF
+}
+
 ensure_unique_basename() {
     local destination=$1
 

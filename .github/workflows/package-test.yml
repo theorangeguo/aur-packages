@@ -6,6 +6,14 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      package:
+        description: 'Single package to validate (optional)'
+        required: false
+        type: string
+
+env:
+  ARCH_BASE_DEVEL_IMAGE: archlinux:base-devel@sha256:01bd0ee1c23c3dec1dcb0fce558150a222ee2ef0a3776404de33d0714bcefbb0
 
 jobs:
   discovery:
@@ -15,11 +23,28 @@ jobs:
       has_packages: ${{ steps.set-matrix.outputs.has_packages }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - id: set-matrix
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_PACKAGE: ${{ github.event.inputs.package || '' }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          PR_COMPARE_SHA: ${{ github.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
+          PUSH_SHA: ${{ github.sha }}
         run: |
           chmod +x scripts/ci_manager.sh
-          ./scripts/ci_manager.sh discover
+          ARGS=()
+          if [ -n "$MANUAL_PACKAGE" ]; then
+            ARGS+=(--package "$MANUAL_PACKAGE")
+          elif [ "$EVENT_NAME" = "pull_request" ] && [ -n "$PR_BASE_SHA" ] && [ -n "$PR_COMPARE_SHA" ]; then
+            ARGS+=(--base-ref "$PR_BASE_SHA" --head-ref "$PR_COMPARE_SHA")
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$PUSH_BEFORE_SHA" ] && [ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            ARGS+=(--base-ref "$PUSH_BEFORE_SHA" --head-ref "$PUSH_SHA")
+          fi
+          ./scripts/ci_manager.sh discover "${ARGS[@]}"
 
   test:
     needs: discovery
@@ -30,7 +55,7 @@ jobs:
       matrix: ${{ fromJson(needs.discovery.outputs.matrix) }}
 
     container:
-      image: archlinux:base-devel
+      image: ${{ env.ARCH_BASE_DEVEL_IMAGE }}
 
     steps:
       - uses: actions/checkout@v6
