@@ -55,6 +55,9 @@ load_package_config() {
     INSTALL_MODE=${INSTALL_MODE:-none}
     SERVICE_MODE=${SERVICE_MODE:-none}
     SERVICE_SCOPE=${SERVICE_SCOPE:-user}
+    WRAPPER_SOURCE_PATH=${WRAPPER_SOURCE_PATH:-}
+    WRAPPER_INSTALL_PATH=${WRAPPER_INSTALL_PATH:-}
+    WRAPPER_MODE=${WRAPPER_MODE:-755}
     UPSTREAM_TAG_PREFIX=${UPSTREAM_TAG_PREFIX:-}
     UPSTREAM_ALLOW_PRERELEASE=${UPSTREAM_ALLOW_PRERELEASE:-false}
     DEB_RELOCATE_USR_LOCAL=${DEB_RELOCATE_USR_LOCAL:-false}
@@ -86,6 +89,11 @@ load_package_config() {
     if [ "$PACKAGE_TEMPLATE" = "binary-archive" ] || [ "$PACKAGE_TEMPLATE" = "appimage-desktop" ]; then
         [ -n "$BINARY_NAME" ] || die "BINARY_NAME is required for template ${PACKAGE_TEMPLATE}"
         [ -n "$INSTALL_BIN_PATH" ] || die "INSTALL_BIN_PATH is required for template ${PACKAGE_TEMPLATE}"
+    fi
+
+    if [ -n "$WRAPPER_SOURCE_PATH" ] || [ -n "$WRAPPER_INSTALL_PATH" ]; then
+        [ -n "$WRAPPER_SOURCE_PATH" ] || die "WRAPPER_SOURCE_PATH is required when WRAPPER_INSTALL_PATH is set"
+        [ -n "$WRAPPER_INSTALL_PATH" ] || die "WRAPPER_INSTALL_PATH is required when WRAPPER_SOURCE_PATH is set"
     fi
 
     if [ "$PACKAGE_TEMPLATE" = "source-meson" ]; then
