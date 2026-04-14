@@ -18,6 +18,8 @@ Generated packaging files are **not** stored permanently in package directories:
 
 They are rendered only inside temporary workspaces during local runs and CI.
 
+For AUR metadata, `url` remains the upstream project URL. There is no second structured AUR field for a packaging repository URL, so this repo exposes packaging provenance through a dedicated `# Packaging Repo:` comment in the rendered `PKGBUILD` instead.
+
 ## 2. High-Level Flow
 
 ```mermaid
@@ -58,6 +60,12 @@ It is responsible for:
 6. running template-driven smoke checks
 
 Both validation and publish now call that same pipeline.
+
+For validation, discovery is change-aware:
+
+- manual runs can target a single package
+- pull requests and normal pushes test only changed packages
+- automation changes under `scripts/` or `.github/workflows/` trigger a full sweep
 
 ```mermaid
 flowchart TD

@@ -14,9 +14,7 @@ render_deb_repack_pkgbuild() {
     source_name_x86_64=$(resolved_source_name_for_arch "x86_64")
 
     cat > "${workspace}/PKGBUILD" <<EOF
-# Maintainer: orange-guo
-# Packaging Repo: https://github.com/orange-guo/aur-packages
-
+$(render_pkgbuild_header)
 $(render_string_assignment "pkgname" "$PKGNAME")
 $(render_string_assignment "pkgver" "$TARGET_PKGVER")
 $(render_string_assignment "pkgrel" "$TARGET_PKGREL")

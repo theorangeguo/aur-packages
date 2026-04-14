@@ -128,37 +128,67 @@ assert_path_executable() {
     [ -x "$path" ] || die "Expected executable path missing or not executable: $path"
 }
 
+assert_path_owned_by_package() {
+    local path=$1
+    local owner
+
+    [[ "$path" = /* ]] || die "Owned-path checks require absolute paths: $path"
+    owner=$(pacman -Qoq "$path" 2>/dev/null || true)
+    [ "$owner" = "$PKGNAME" ] || die "Expected installed path to be owned by $PKGNAME: $path"
+}
+
+assert_packaged_path_exists() {
+    local path=$1
+
+    assert_path_exists "$path"
+    assert_path_owned_by_package "$path"
+}
+
+assert_packaged_path_executable() {
+    local path=$1
+
+    assert_path_executable "$path"
+    assert_path_owned_by_package "$path"
+}
+
 run_smoke_checks() {
     pacman -Q "$PKGNAME" >/dev/null 2>&1 || die "Installed package not found in pacman database: $PKGNAME"
 
     if [ -n "$INSTALL_BIN_PATH" ]; then
-        assert_path_executable "$INSTALL_BIN_PATH"
+        assert_packaged_path_executable "$INSTALL_BIN_PATH"
     fi
 
     if [ "$SERVICE_MODE" != "none" ]; then
-        assert_path_exists "$(service_install_path)"
+        assert_packaged_path_exists "$(service_install_path)"
     fi
 
     if [ "$PACKAGE_TEMPLATE" = "appimage-desktop" ] && [ -n "$BINARY_NAME" ]; then
-        assert_path_exists "/usr/share/applications/${BINARY_NAME}.desktop"
+        assert_packaged_path_exists "/usr/share/applications/${BINARY_NAME}.desktop"
     fi
 
     local license_file
     for license_file in "${LICENSE_FILES[@]}"; do
         [ -n "$license_file" ] || continue
-        assert_path_exists "/usr/share/licenses/${PKGNAME}/$(basename "$license_file")"
+        assert_packaged_path_exists "/usr/share/licenses/${PKGNAME}/$(basename "$license_file")"
     done
 
     local test_path
     for test_path in "${TEST_PATHS[@]}"; do
         [ -n "$test_path" ] || continue
-        assert_path_exists "$test_path"
+        assert_packaged_path_exists "$test_path"
     done
 
     local test_executable
     for test_executable in "${TEST_EXECUTABLES[@]}"; do
         [ -n "$test_executable" ] || continue
-        assert_path_executable "$test_executable"
+        assert_packaged_path_executable "$test_executable"
+    done
+
+    local test_command
+    for test_command in "${TEST_COMMANDS[@]}"; do
+        [ -n "$test_command" ] || continue
+        log_info "Running smoke-test command: $test_command"
+        bash -lc "$test_command" || die "Smoke-test command failed: $test_command"
     done
 }
 

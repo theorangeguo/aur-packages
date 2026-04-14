@@ -34,6 +34,7 @@ load_package_config() {
     PERSIST_STATE_KEYS=("${PERSIST_STATE_KEYS[@]}")
     TEST_PATHS=("${TEST_PATHS[@]}")
     TEST_EXECUTABLES=("${TEST_EXECUTABLES[@]}")
+    TEST_COMMANDS=("${TEST_COMMANDS[@]}")
 
     [ -n "$PKGNAME" ] || die "PKGNAME is required in ${config_path}"
     [ "$PKGNAME" = "$PACKAGE_NAME" ] || die "Package directory must match PKGNAME: ${PACKAGE_NAME} != ${PKGNAME}"
@@ -55,6 +56,7 @@ load_package_config() {
     INSTALL_MODE=${INSTALL_MODE:-none}
     SERVICE_MODE=${SERVICE_MODE:-none}
     SERVICE_SCOPE=${SERVICE_SCOPE:-user}
+    PACKAGING_REPO_URL=${PACKAGING_REPO_URL:-https://github.com/orange-guo/aur-packages/tree/main/${PKGNAME}}
     WRAPPER_SOURCE_PATH=${WRAPPER_SOURCE_PATH:-}
     WRAPPER_INSTALL_PATH=${WRAPPER_INSTALL_PATH:-}
     WRAPPER_MODE=${WRAPPER_MODE:-755}
