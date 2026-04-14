@@ -3,6 +3,9 @@
 render_binary_archive_pkgbuild() {
     local workspace=$1
     local binary_source_path=${BINARY_SOURCE_PATH:-$BINARY_NAME}
+    local wrapper_source_path=${WRAPPER_SOURCE_PATH:-}
+    local wrapper_install_path=${WRAPPER_INSTALL_PATH:-}
+    local wrapper_mode=${WRAPPER_MODE:-755}
     local service_path=""
 
     register_workspace_sync_file "PKGBUILD"
@@ -35,6 +38,9 @@ $(render_common_source_arrays)
 
 _binary_source_path=$(printf '%q' "$binary_source_path")
 _install_bin_path=$(printf '%q' "$INSTALL_BIN_PATH")
+_wrapper_source_path=$(printf '%q' "$wrapper_source_path")
+_wrapper_install_path=$(printf '%q' "$wrapper_install_path")
+_wrapper_mode=$(printf '%q' "$wrapper_mode")
 _service_file=$(printf '%q' "$WORKSPACE_SERVICE_FILE_NAME")
 _service_install_path=$(printf '%q' "$service_path")
 $(render_array_assignment "_doc_files" "${DOC_FILES[@]}")
@@ -43,6 +49,10 @@ $(render_persisted_state_assignments)
 
 package() {
     install -Dm755 "\${srcdir}/\${_binary_source_path}" "\${pkgdir}\${_install_bin_path}"
+
+    if [ -n "\${_wrapper_source_path}" ] && [ -n "\${_wrapper_install_path}" ]; then
+        install -Dm\${_wrapper_mode} "\${srcdir}/\${_wrapper_source_path}" "\${pkgdir}\${_wrapper_install_path}"
+    fi
 
     local doc_file
     for doc_file in "\${_doc_files[@]}"; do

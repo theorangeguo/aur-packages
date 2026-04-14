@@ -191,6 +191,7 @@ main() {
     render_pkgbuild "$workspace"
 
     log_group_start "Build Package"
+    prefetch_resolved_sources
     build_package_as_builder "$workspace"
     log_group_end
 

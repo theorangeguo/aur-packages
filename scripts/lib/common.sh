@@ -153,6 +153,80 @@ resolved_common_source_name() {
     expand_template "$template"
 }
 
+is_http_source_url() {
+    case "$1" in
+        http://*|https://*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+fetch_url_text_with_retry() {
+    local url=$1
+
+    [ -n "$url" ] || die "URL is required"
+    require_cmd curl
+
+    curl -fsSL --retry 20 --retry-all-errors --retry-delay 2 --connect-timeout 20 "$url"
+}
+
+prefetch_remote_source() {
+    local url=$1
+    local target_path=$2
+    local partial_path="${target_path}.part"
+
+    [ -n "$SRCDEST" ] || die "SRCDEST must be set before prefetching sources"
+    [ -n "$url" ] || return 0
+    [ -n "$target_path" ] || die "Target path is required for source prefetch"
+
+    is_http_source_url "$url" || return 0
+    require_cmd curl
+
+    mkdir -p "$SRCDEST"
+
+    if [ -s "$target_path" ]; then
+        log_info "Using cached source: $(basename "$target_path")"
+        return 0
+    fi
+
+    [ -e "$target_path" ] && rm -f "$target_path"
+    [ -e "$partial_path" ] && [ ! -s "$partial_path" ] && rm -f "$partial_path"
+
+    log_info "Prefetching source: $(basename "$target_path")"
+    if ! curl -fsSL --retry 20 --retry-all-errors --retry-delay 2 -C - -o "$partial_path" "$url"; then
+        log_info "Resume attempt failed for $(basename "$target_path"); retrying from scratch."
+        rm -f "$partial_path"
+        curl -fsSL --retry 20 --retry-all-errors --retry-delay 2 -o "$partial_path" "$url" \
+            || die "Failed to prefetch source: $url"
+    fi
+
+    [ -s "$partial_path" ] || die "Prefetched source is empty: $(basename "$target_path")"
+    mv "$partial_path" "$target_path"
+}
+
+prefetch_resolved_sources() {
+    local common_source_url
+    local common_source_name
+    local arch
+    local resolved_url
+    local source_name
+
+    [ -n "$SRCDEST" ] || die "SRCDEST must be set before prefetching sources"
+
+    common_source_url=$(resolved_common_source_url)
+    if [ -n "$common_source_url" ]; then
+        common_source_name=$(resolved_common_source_name)
+        prefetch_remote_source "$common_source_url" "$SRCDEST/$common_source_name"
+    fi
+
+    for arch in "${ARCHES[@]}"; do
+        resolved_url=$(resolved_source_url_for_arch "$arch")
+        [ -n "$resolved_url" ] || continue
+
+        source_name=$(resolved_source_name_for_arch "$arch")
+        prefetch_remote_source "$resolved_url" "$SRCDEST/$source_name"
+    done
+}
+
 reset_workspace_state() {
     WORKSPACE_COMMON_SOURCE_FILES=()
     WORKSPACE_SYNC_FILES=()
