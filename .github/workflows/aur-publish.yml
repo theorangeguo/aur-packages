@@ -5,11 +5,10 @@ on:
     - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
-      force:
-        description: 'Force update'
+      package:
+        description: 'Single package to publish (optional)'
         required: false
-        type: boolean
-        default: false
+        type: string
       dry_run:
         description: 'Dry run'
         required: false
@@ -19,6 +18,7 @@ on:
 env:
   AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
   AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
+  ARCH_BASE_DEVEL_IMAGE: archlinux:base-devel@sha256:01bd0ee1c23c3dec1dcb0fce558150a222ee2ef0a3776404de33d0714bcefbb0
 
 jobs:
   # ----------------------------------------------------------------------------
@@ -31,11 +31,19 @@ jobs:
       has_packages: ${{ steps.set-matrix.outputs.has_packages }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - id: set-matrix
+        env:
+          MANUAL_PACKAGE: ${{ github.event.inputs.package || '' }}
         run: |
           chmod +x scripts/ci_manager.sh
-          ./scripts/ci_manager.sh discover
+          if [ -n "$MANUAL_PACKAGE" ]; then
+            ./scripts/ci_manager.sh discover --package "$MANUAL_PACKAGE"
+          else
+            ./scripts/ci_manager.sh discover
+          fi
 
   # ----------------------------------------------------------------------------
   # Phase 2: Execution
@@ -48,8 +56,12 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.discovery.outputs.matrix) }}
 
+    concurrency:
+      group: aur-publish-${{ matrix.package }}
+      cancel-in-progress: false
+
     container:
-      image: archlinux:base-devel
+      image: ${{ env.ARCH_BASE_DEVEL_IMAGE }}
 
     steps:
       - uses: actions/checkout@v6
@@ -70,8 +82,7 @@ jobs:
 
           # 3. Construct Arguments
           ARGS=""
-          if [ "${{ inputs.force }}" == "true" ]; then ARGS="$ARGS -f"; fi
-          if [ "${{ inputs.dry_run }}" == "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "${{ github.event.inputs.dry_run || 'false' }}" == "true" ]; then ARGS="$ARGS --dry-run"; fi
 
           # 4. Run Update + Install Verification
           ./scripts/ci_manager.sh run_update "${{ matrix.package }}" --verify-install $ARGS

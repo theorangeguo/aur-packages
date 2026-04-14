@@ -8,6 +8,8 @@ Two workflows matter:
 - `.github/workflows/aur-publish.yml` for scheduled/manual publish to AUR
 - `.github/workflows/package-test.yml` for build+install verification on pull requests, pushes, and manual runs
 
+Both manual workflows accept an optional single-package input so you can rerun one package without fanning out across the whole repository.
+
 ## 1. Prerequisites
 
 ### GitHub Repository Settings
@@ -49,6 +51,8 @@ The validation workflow reuses the same discovery matrix, but runs `./scripts/ci
 - **Action**: scans for directories containing `package.conf`
 - **Output**: GitHub Actions matrix JSON
 
+On pull requests and ordinary pushes, discovery narrows the validation matrix to the packages touched by the diff. If automation files under `scripts/` or `.github/workflows/` change, discovery falls back to a full-package sweep.
+
 ### Phase 2: Validation execution
 For each package in `package-test.yml`:
 
@@ -79,6 +83,8 @@ This is the repo's standard test path.
 
 `run_test` uses an ephemeral Arch container locally and the job container in GitHub Actions. It builds the package, installs it, and verifies expected files.
 
+Local `run_test` requires Docker or Podman.
+
 Use `run_update --verify-install` in CI or an ephemeral container, not on a long-lived host system, because it installs the candidate package before publishing.
 
 When the manager is invoked as root, package builds still run as the non-root `builder` user, but the root-owned publish path can install the built package for smoke testing before pushing to AUR. Non-root local runs use the current user.
@@ -88,5 +94,5 @@ When the manager is invoked as root, package builds still run as the non-root `b
 The scripts enforce:
 - input sanitization for package paths
 - non-root builds via the `builder` user
-- temporary SSH key handling during push
+- temporary SSH key handling during push with AUR host fingerprint verification
 - package rendering from trusted local configs only
