@@ -22,6 +22,8 @@ source "${SCRIPT_DIR}/lib/template_deb_repack.sh"
 source "${SCRIPT_DIR}/lib/template_appimage_desktop.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/template_source_meson.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/package_pipeline.sh"
 
 PKG_DIR=""
 TMP_ROOT=""
@@ -40,112 +42,6 @@ cleanup() {
 
 trap cleanup EXIT
 
-dispatch_upstream_resolution() {
-    case "$UPSTREAM_TYPE" in
-        github-release-assets)
-            resolve_github_release_assets
-            ;;
-        custom-hook)
-            resolve_custom_upstream_state
-            ;;
-        *)
-            die "Unsupported UPSTREAM_TYPE: $UPSTREAM_TYPE"
-            ;;
-    esac
-}
-
-render_pkgbuild() {
-    local workspace=$1
-
-    case "$PACKAGE_TEMPLATE" in
-        binary-archive)
-            render_binary_archive_pkgbuild "$workspace"
-            ;;
-        deb-repack)
-            render_deb_repack_pkgbuild "$workspace"
-            ;;
-        appimage-desktop)
-            render_appimage_desktop_pkgbuild "$workspace"
-            ;;
-        source-meson)
-            render_source_meson_pkgbuild "$workspace"
-            ;;
-        *)
-            die "Unsupported PACKAGE_TEMPLATE: $PACKAGE_TEMPLATE"
-            ;;
-    esac
-}
-
-build_package_as_builder() {
-    local workspace=$1
-    local builder_script="${TMP_ROOT}/builder-build.sh"
-
-    cat > "$builder_script" <<EOF
-#!/bin/bash
-set -e
-source $(printf '%q' "${SCRIPT_DIR}/lib/common.sh")
-$(render_array_assignment "VALIDPGPKEYS" "${VALIDPGPKEYS[@]}")
-export SRCDEST=$(printf '%q' "$SRCDEST")
-export PKGDEST=$(printf '%q' "$PKGDEST")
-cd $(printf '%q' "$workspace")
-ensure_valid_pgp_keys
-updpkgsums
-makepkg --printsrcinfo > .SRCINFO
-makepkg -sf --noconfirm
-makepkg --packagelist > .packagelist
-EOF
-
-    chmod +x "$builder_script"
-    chown -R builder:builder "$TMP_ROOT"
-    su builder -c "HOME=/home/builder bash $(printf %q "$builder_script")"
-}
-
-assert_path_exists() {
-    local path=$1
-    [[ "$path" = /* ]] || die "Smoke-test paths must be absolute: $path"
-    [ -e "$path" ] || die "Expected installed path missing: $path"
-}
-
-assert_path_executable() {
-    local path=$1
-    [[ "$path" = /* ]] || die "Smoke-test executable paths must be absolute: $path"
-    [ -x "$path" ] || die "Expected executable path missing or not executable: $path"
-}
-
-run_smoke_checks() {
-    pacman -Q "$PKGNAME" >/dev/null 2>&1 || die "Installed package not found in pacman database: $PKGNAME"
-
-    if [ -n "$INSTALL_BIN_PATH" ]; then
-        assert_path_executable "$INSTALL_BIN_PATH"
-    fi
-
-    if [ "$SERVICE_MODE" != "none" ]; then
-        assert_path_exists "$(service_install_path)"
-    fi
-
-    if [ "$PACKAGE_TEMPLATE" = "appimage-desktop" ] && [ -n "$BINARY_NAME" ]; then
-        assert_path_exists "/usr/share/applications/${BINARY_NAME}.desktop"
-    fi
-
-    local license_file
-    for license_file in "${LICENSE_FILES[@]}"; do
-        [ -n "$license_file" ] || continue
-        assert_path_exists "/usr/share/licenses/${PKGNAME}/$(basename "$license_file")"
-    done
-
-    local test_path
-    for test_path in "${TEST_PATHS[@]}"; do
-        [ -n "$test_path" ] || continue
-        assert_path_exists "$test_path"
-    done
-
-    local test_executable
-    for test_executable in "${TEST_EXECUTABLES[@]}"; do
-        [ -n "$test_executable" ] || continue
-        assert_path_executable "$test_executable"
-    done
-}
-
 main() {
     PKG_DIR=$1
 
@@ -155,7 +51,6 @@ main() {
     }
 
     [ "$(id -u)" -eq 0 ] || die "scripts/test_package.sh must run as root inside the test container"
-    id -u builder >/dev/null 2>&1 || die "builder user not found; run ./scripts/ci_manager.sh setup_user first"
 
     cd "$REPO_ROOT"
 
@@ -187,23 +82,13 @@ main() {
     log_info "Resolved Version: $TARGET_PKGVER"
     log_group_end
 
-    prepare_workspace_assets "$workspace"
-    render_pkgbuild "$workspace"
+    prepare_workspace_for_build "$workspace"
 
     log_group_start "Build Package"
-    prefetch_resolved_sources
-    build_package_as_builder "$workspace"
+    build_workspace "$workspace" false true
     log_group_end
 
-    local package_files=()
-    mapfile -t package_files < "${workspace}/.packagelist"
-    [ "${#package_files[@]}" -gt 0 ] || die "No built package files were produced"
-
-    log_group_start "Install Package"
-    pacman -U --noconfirm "${package_files[@]}"
-    run_smoke_checks
-    log_info "Package install smoke tests passed: $PKGNAME"
-    log_group_end
+    install_and_verify_workspace "$workspace"
 }
 
 main "$@"

@@ -21,9 +21,12 @@ The system uses a centralized manager script [`scripts/ci_manager.sh`](scripts/c
 2.  **Resolve**: Fetches upstream versions and asset URLs.
 3.  **Render**: Generates a temporary `PKGBUILD`, optional `.install`, and other packaging assets.
 4.  **Build**: Verifies the package builds successfully in a clean environment.
-5.  **Publish**: Pushes the rendered package contents to AUR if all checks pass.
+5.  **Install Test**: Runs the same package install smoke checks used by pull request validation for packages that will be published.
+6.  **Publish**: Pushes the rendered package contents to AUR only after the install test passes.
 
-There is also a package validation workflow that reuses the same dynamic package discovery, then builds and installs each package in an Arch container.
+The package validation workflow and the publish workflow now share the same install-test path, so scheduled AUR publishes are gated on the same package-level smoke checks used in pull requests.
+
+For a deeper explanation of the moving parts, see [docs/WORKFLOW.md](docs/WORKFLOW.md).
 
 The publish workflow runs automatically **every 6 hours**. The validation workflow runs on pull requests, pushes to `main`, and manual dispatches.
 
