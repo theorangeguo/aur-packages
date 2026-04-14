@@ -12,9 +12,6 @@ on:
         required: false
         type: string
 
-env:
-  ARCH_BASE_DEVEL_IMAGE: archlinux:base-devel@sha256:01bd0ee1c23c3dec1dcb0fce558150a222ee2ef0a3776404de33d0714bcefbb0
-
 jobs:
   discovery:
     runs-on: ubuntu-latest
@@ -55,7 +52,7 @@ jobs:
       matrix: ${{ fromJson(needs.discovery.outputs.matrix) }}
 
     container:
-      image: ${{ env.ARCH_BASE_DEVEL_IMAGE }}
+      image: archlinux:base-devel@sha256:01bd0ee1c23c3dec1dcb0fce558150a222ee2ef0a3776404de33d0714bcefbb0
 
     steps:
       - uses: actions/checkout@v6
