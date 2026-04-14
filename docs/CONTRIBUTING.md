@@ -2,6 +2,8 @@
 
 This repository is template-driven. Each package directory declares a package via `package.conf`, with optional `hooks.sh` and `files/` overrides. `PKGBUILD` and `.SRCINFO` are generated only during local runs and CI.
 
+For the end-to-end repository workflow, see [WORKFLOW.md](WORKFLOW.md).
+
 ## 📋 Standard Process for New Packages
 
 ### 1. Create Package Directory
@@ -123,7 +125,9 @@ Before committing, test the package locally from the repository root.
 
 This is the smallest meaningful test in this repo. It resolves upstream state, renders a temporary `PKGBUILD`, refreshes checksums, generates `.SRCINFO`, and verifies the build.
 
-`run_test` is the stronger validation path. It runs in an Arch container, builds the package, installs it with `pacman -U`, and checks the installed files.
+`run_test` is the stronger validation path. It runs in an Arch container, builds the package, installs it with `pacman -U`, and checks the installed files. The scheduled AUR publish workflow now uses that same install-test path before publishing package updates.
+
+If you manually use `run_update --verify-install`, prefer doing so inside CI or an ephemeral container rather than on a long-lived host system.
 
 Use `--force` when you need to re-run packaging logic even if the version matches AUR.
 
@@ -143,7 +147,8 @@ The scheduled workflow does this for each package:
 4. Render a temporary `PKGBUILD`
 5. Refresh checksums and generate `.SRCINFO`
 6. Build locally in CI
-7. Push the rendered package contents to AUR
+7. Install the built package and run smoke checks
+8. Publish to AUR only if the install test passes
 
 ### Packaging-only changes
 If upstream version stays the same but rendered package contents change, the automation bumps `pkgrel` based on the current AUR repo state.
