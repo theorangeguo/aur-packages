@@ -2,6 +2,8 @@
 
 This repository uses a template-driven CI pipeline to automate AUR package maintenance and package validation.
 
+For the higher-level workflow architecture, see [WORKFLOW.md](WORKFLOW.md).
+
 Two workflows matter:
 - `.github/workflows/aur-publish.yml` for scheduled/manual publish to AUR
 - `.github/workflows/package-test.yml` for build+install verification on pull requests, pushes, and manual runs
@@ -40,7 +42,7 @@ package-name/
 
 The workflows in `.github/workflows/aur-publish.yml` and `.github/workflows/package-test.yml` delegate all logic to `scripts/`.
 
-The validation workflow reuses the same discovery matrix, but runs `./scripts/ci_manager.sh run_test <package_dir>` instead of publishing.
+The validation workflow reuses the same discovery matrix, but runs `./scripts/ci_manager.sh run_test <package_dir>` instead of publishing. The publish workflow uses the same build + install smoke-test path before it stages and pushes updates to AUR.
 
 ### Phase 1: Discovery
 - **Command**: `scripts/ci_manager.sh discover`
@@ -60,7 +62,7 @@ For each package in `package-test.yml`:
 8. Install the built package with `pacman -U`
 9. Run smoke checks against the installed files
 
-For `aur-publish.yml`, the build path continues from there by syncing and pushing the rendered package contents to AUR.
+For `aur-publish.yml`, the same build and install-test path runs first, then the workflow syncs and pushes the rendered package contents to AUR only if the install verification passes.
 
 ## 4. Local Testing
 
@@ -77,7 +79,9 @@ This is the repo's standard test path.
 
 `run_test` uses an ephemeral Arch container locally and the job container in GitHub Actions. It builds the package, installs it, and verifies expected files.
 
-When the manager is invoked as root, it switches to the `builder` user before running package builds. Non-root local runs use the current user.
+Use `run_update --verify-install` in CI or an ephemeral container, not on a long-lived host system, because it installs the candidate package before publishing.
+
+When the manager is invoked as root, package builds still run as the non-root `builder` user, but the root-owned publish path can install the built package for smoke testing before pushing to AUR. Non-root local runs use the current user.
 
 ## 5. Security Measures
 

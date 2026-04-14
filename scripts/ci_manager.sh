@@ -99,7 +99,7 @@ case "$COMMAND" in
         chmod +x scripts/auto_update.sh
 
         if [ "$(id -u)" -eq 0 ]; then
-            log "Running as root, switching to 'builder' user..."
+            log "Running update pipeline as root..."
             SAFE_PKG_DIR=$(printf %q "$PKG_DIR")
             SAFE_ARGS=""
             if [ "${#ARGS[@]}" -gt 0 ]; then
@@ -110,7 +110,7 @@ case "$COMMAND" in
                  export AUR_EMAIL='$AUR_EMAIL'; \
                  export AUR_SSH_PRIVATE_KEY='$AUR_SSH_PRIVATE_KEY'; \
                  bash scripts/auto_update.sh $SAFE_PKG_DIR$SAFE_ARGS"
-            su builder -c "$CMD"
+            bash -lc "$CMD"
         else
             log "Running as current user ($(whoami))..."
             bash scripts/auto_update.sh "$PKG_DIR" "${ARGS[@]}"
