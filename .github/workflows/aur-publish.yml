@@ -18,7 +18,6 @@ on:
 env:
   AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
   AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
-  ARCH_BASE_DEVEL_IMAGE: archlinux:base-devel@sha256:01bd0ee1c23c3dec1dcb0fce558150a222ee2ef0a3776404de33d0714bcefbb0
 
 jobs:
   # ----------------------------------------------------------------------------
@@ -61,7 +60,7 @@ jobs:
       cancel-in-progress: false
 
     container:
-      image: ${{ env.ARCH_BASE_DEVEL_IMAGE }}
+      image: archlinux:base-devel@sha256:01bd0ee1c23c3dec1dcb0fce558150a222ee2ef0a3776404de33d0714bcefbb0
 
     steps:
       - uses: actions/checkout@v6
@@ -81,8 +80,8 @@ jobs:
           ./scripts/ci_manager.sh setup_user
 
           # 3. Construct Arguments
-          ARGS=""
-          if [ "${{ github.event.inputs.dry_run || 'false' }}" == "true" ]; then ARGS="$ARGS --dry-run"; fi
+          ARGS=()
+          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then ARGS+=(--dry-run); fi
 
           # 4. Run Update + Install Verification
-          ./scripts/ci_manager.sh run_update "${{ matrix.package }}" --verify-install $ARGS
+          ./scripts/ci_manager.sh run_update "${{ matrix.package }}" --verify-install "${ARGS[@]}"
