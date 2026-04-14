@@ -47,12 +47,11 @@ sudo ./scripts/ci_manager.sh setup_user
 ```
 - This is the repo's closest equivalent to a standard test command.
 - It resolves upstream metadata, renders temporary packaging files, refreshes checksums, generates `.SRCINFO`, and verifies one package build.
-- Add `--force` to re-run packaging logic even when the upstream version matches AUR.
 - `run_test` is the stronger validation path: it builds the package, installs it, and performs smoke checks against the installed files.
 
 ### Lower-level updater
 ```bash
-bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build] [--force]
+bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build]
 ```
 - Prefer the manager wrapper unless you specifically need the lower-level script.
 

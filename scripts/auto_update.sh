@@ -27,25 +27,25 @@ source "${SCRIPT_DIR}/lib/aur_state.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/package_pipeline.sh"
 
-FORCE_UPDATE=false
 DRY_RUN=false
 SKIP_BUILD=false
 VERIFY_INSTALL=false
 PKG_DIR=""
 TMP_ROOT=""
 SSH_KEY_FILE=""
-AUR_REPO_EXISTS=false
+SSH_KNOWN_HOSTS_FILE=""
 AUR_CURRENT_VER=""
 AUR_CURRENT_REL=0
 TARGET_PKGVER=""
 TARGET_PKGREL=1
 FINAL_WORKSPACE=""
+AUR_SSH_HOST=aur.archlinux.org
+AUR_SSH_HOST_ED25519_FINGERPRINT='SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4'
 
 show_help() {
     echo "Usage: ./auto_update.sh [package_dir] [options]"
     echo ""
     echo "Options:"
-    echo "  -f, --force          Force update flow even if version matches"
     echo "  --dry-run            Simulate run, do not push to AUR"
     echo "  --skip-build         Skip makepkg step (metadata update only)"
     echo "  --verify-install     Install built package and run smoke checks before publish (recommended in CI/container only)"
@@ -57,12 +57,38 @@ cleanup() {
         rm -f "$SSH_KEY_FILE"
     fi
 
+    if [ -n "$SSH_KNOWN_HOSTS_FILE" ] && [ -f "$SSH_KNOWN_HOSTS_FILE" ]; then
+        rm -f "$SSH_KNOWN_HOSTS_FILE"
+    fi
+
     if [ -n "$TMP_ROOT" ] && [ -d "$TMP_ROOT" ]; then
         rm -rf "$TMP_ROOT"
     fi
 }
 
 trap cleanup EXIT
+
+prepare_aur_ssh() {
+    local fingerprint
+
+    require_cmd ssh-keyscan
+    require_cmd ssh-keygen
+    require_cmd awk
+
+    SSH_KEY_FILE=$(mktemp)
+    printf '%s\n' "$AUR_SSH_PRIVATE_KEY" | tr -d '\r' > "$SSH_KEY_FILE"
+    chmod 600 "$SSH_KEY_FILE"
+
+    SSH_KNOWN_HOSTS_FILE=$(mktemp)
+    ssh-keyscan -t ed25519 "$AUR_SSH_HOST" > "$SSH_KNOWN_HOSTS_FILE" 2>/dev/null \
+        || die "Failed to fetch AUR SSH host key"
+    [ -s "$SSH_KNOWN_HOSTS_FILE" ] || die "Fetched empty AUR SSH host key set"
+
+    fingerprint=$(ssh-keygen -lf "$SSH_KNOWN_HOSTS_FILE" -E sha256 | awk 'NR == 1 { print $2 }')
+    [ "$fingerprint" = "$AUR_SSH_HOST_ED25519_FINGERPRINT" ] \
+        || die "Unexpected AUR SSH host key fingerprint: ${fingerprint:-unknown}"
+    chmod 600 "$SSH_KNOWN_HOSTS_FILE"
+}
 
 build_and_stage_workspace() {
     local workspace="${TMP_ROOT}/workspace-${TARGET_PKGREL}"
@@ -97,9 +123,10 @@ publish_to_aur() {
 
     if [ "$CI" = "true" ] && [ -n "$AUR_SSH_PRIVATE_KEY" ]; then
         local remote_url="ssh://aur@aur.archlinux.org/${PKGNAME}.git"
-        SSH_KEY_FILE=$(mktemp)
-        printf '%s\n' "$AUR_SSH_PRIVATE_KEY" | tr -d '\r' > "$SSH_KEY_FILE"
-        chmod 600 "$SSH_KEY_FILE"
+        local git_ssh_command
+
+        prepare_aur_ssh
+        git_ssh_command="ssh -i $SSH_KEY_FILE -o UserKnownHostsFile=$SSH_KNOWN_HOSTS_FILE -o StrictHostKeyChecking=yes"
 
         if git -C "$AUR_REPO_DIR" remote get-url origin >/dev/null 2>&1; then
             git -C "$AUR_REPO_DIR" remote set-url origin "$remote_url"
@@ -107,15 +134,14 @@ publish_to_aur() {
             git -C "$AUR_REPO_DIR" remote add origin "$remote_url"
         fi
 
-        git -C "$AUR_REPO_DIR" config user.name "${AUR_USERNAME:-orange-guo}"
-        git -C "$AUR_REPO_DIR" config user.email "${AUR_EMAIL:-aur@example.invalid}"
-
-        GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no" \
-            git -C "$AUR_REPO_DIR" commit -m "$commit_msg"
-        GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no" \
+        GIT_SSH_COMMAND="$git_ssh_command" \
+            git -C "$AUR_REPO_DIR" -c user.name="${AUR_USERNAME:-orange-guo}" -c user.email="${AUR_EMAIL:-aur@example.invalid}" commit -m "$commit_msg"
+        GIT_SSH_COMMAND="$git_ssh_command" \
             git -C "$AUR_REPO_DIR" push origin master
         rm -f "$SSH_KEY_FILE"
         SSH_KEY_FILE=""
+        rm -f "$SSH_KNOWN_HOSTS_FILE"
+        SSH_KNOWN_HOSTS_FILE=""
     else
         log_info "Skipping push (local run or missing AUR SSH key)."
         log_info "AUR repository prepared at: $AUR_REPO_DIR"
@@ -125,7 +151,6 @@ publish_to_aur() {
 main() {
     while [[ "$#" -gt 0 ]]; do
         case $1 in
-            -f|--force) FORCE_UPDATE=true ;;
             --dry-run) DRY_RUN=true ;;
             --skip-build) SKIP_BUILD=true ;;
             --verify-install) VERIFY_INSTALL=true ;;

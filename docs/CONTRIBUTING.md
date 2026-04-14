@@ -45,16 +45,27 @@ SOURCE_RENAME_X86_64='${pkgname}-${pkgver}-x86_64.tar.gz'
 
 BINARY_NAME=my-binary
 INSTALL_BIN_PATH=/usr/bin/my-binary
+BINARY_SOURCE_PATH=my-binary
+WRAPPER_SOURCE_PATH=files/my-wrapper
+WRAPPER_INSTALL_PATH=/usr/bin/my-wrapper
 
 LOCAL_FILES=()
 DOC_FILES=()
 LICENSE_FILES=('LICENSE')
 TEST_PATHS=()
 TEST_EXECUTABLES=()
+TEST_COMMANDS=('/usr/bin/my-binary --version')
 
 INSTALL_MODE=generated
 SERVICE_MODE=none
 ```
+
+Useful optional fields:
+
+- `PACKAGING_REPO_URL` — overrides the dedicated `# Packaging Repo:` comment added to rendered `PKGBUILD`s. This is separate from the AUR `url` metadata field, which should still point at upstream.
+- `BINARY_SOURCE_PATH` — path inside the extracted source archive to install as the main binary.
+- `WRAPPER_SOURCE_PATH`, `WRAPPER_INSTALL_PATH`, `WRAPPER_MODE` — install an additional wrapper script alongside the main binary.
+- `TEST_COMMANDS` — commands executed after install during smoke checks.
 
 ### 3. Add Overrides Only If Needed
 
@@ -101,6 +112,12 @@ RUN_CHECK=false
 CHECK_ARGS=()
 ```
 
+Other template-specific fields:
+
+- `deb-repack`: `DEB_RELOCATE_USR_LOCAL=true`
+- `appimage-desktop`: `APPIMAGE_APPDIR_NAME`, `DESKTOP_EXEC_REWRITE`, `DESKTOP_NAME_REWRITE`, `DESKTOP_CANDIDATES`, `ICON_CANDIDATES`
+- `binary-archive`: `WRAPPER_*`, `BINARY_SOURCE_PATH`
+
 Current built-in upstream resolvers:
 - `github-release-assets`
 - `custom-hook`
@@ -111,9 +128,9 @@ Template-driven install tests automatically validate common installed outputs su
 - appimage desktop entries
 - license files under `/usr/share/licenses/${PKGNAME}/`
 
-Use `TEST_PATHS` and `TEST_EXECUTABLES` only when a package needs extra smoke-check assertions beyond the template defaults.
+Use `TEST_PATHS`, `TEST_EXECUTABLES`, and `TEST_COMMANDS` only when a package needs extra smoke-check assertions beyond the template defaults.
 
-Both fields must contain absolute installed paths. `TEST_EXECUTABLES` checks that the installed path exists and has the executable bit set; it does not run the command.
+`TEST_PATHS` and `TEST_EXECUTABLES` must contain absolute installed paths. `TEST_EXECUTABLES` checks that the installed path exists, is executable, and is owned by the package. `TEST_COMMANDS` executes the provided commands after install.
 
 ### 5. Local Verification
 Before committing, test the package locally from the repository root.
@@ -128,8 +145,6 @@ This is the smallest meaningful test in this repo. It resolves upstream state, r
 `run_test` is the stronger validation path. It runs in an Arch container, builds the package, installs it with `pacman -U`, and checks the installed files. The scheduled AUR publish workflow now uses that same install-test path before publishing package updates.
 
 If you manually use `run_update --verify-install`, prefer doing so inside CI or an ephemeral container rather than on a long-lived host system.
-
-Use `--force` when you need to re-run packaging logic even if the version matches AUR.
 
 ### 6. Update Documentation
 When adding or removing packages, update `README.md`.

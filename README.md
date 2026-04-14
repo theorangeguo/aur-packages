@@ -37,6 +37,7 @@ You can use the `ci_manager.sh` script to test changes locally. This script hand
 ### Prerequisites
 *   Arch Linux based system (or container)
 *   `sudo` privileges
+*   Docker or Podman for local `run_test`
 
 ### Commands
 
@@ -52,9 +53,9 @@ sudo ./scripts/ci_manager.sh setup_user
 ./scripts/ci_manager.sh run_update antigravity-tools-bin --dry-run
 ```
 
-**3. Force Update & Build:**
+**3. Run Publish Path Verification (Container/CI Recommended):**
 ```bash
-./scripts/ci_manager.sh run_update antigravity-tools-bin --force --dry-run
+./scripts/ci_manager.sh run_update claude-code-stable-bin --dry-run --verify-install
 ```
 
 **4. Run Containerized Install Test:**
@@ -77,7 +78,7 @@ Each package directory now keeps only:
 
 ## 🔑 Integration & Secrets
 
-For detailed setup instructions, including required secrets (`AUR_SSH_PRIVATE_KEY`) and global configuration, please refer to [INTEGRATION.md](docs/INTEGRATION.md).
+For detailed setup instructions, including required publishing secrets (`AUR_SSH_PRIVATE_KEY`, `AUR_USERNAME`, and `AUR_EMAIL`) and global configuration, please refer to [INTEGRATION.md](docs/INTEGRATION.md).
 
 ---
 *Maintained by [orange-guo](https://github.com/orange-guo)*

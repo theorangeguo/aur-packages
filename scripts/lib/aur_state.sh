@@ -8,7 +8,6 @@ prepare_aur_repo() {
     local package_status
 
     if git clone "$aur_readonly_url" "$aur_dir" >/dev/null 2>&1; then
-        AUR_REPO_EXISTS=true
         AUR_REPO_DIR=$aur_dir
         return 0
     fi
@@ -29,7 +28,6 @@ prepare_aur_repo() {
 
     log_info "AUR repository not found for ${package_name}; treating this as a new package."
     git init -q -b master "$aur_dir"
-    AUR_REPO_EXISTS=false
     AUR_REPO_DIR=$aur_dir
 }
 
