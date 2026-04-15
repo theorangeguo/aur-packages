@@ -6,6 +6,8 @@ This document explains how this repository turns `package.conf`-based package de
 
 Each package directory keeps only the declarative inputs:
 
+- package directories live under `packages/<pkgname>/`
+
 - `package.conf` — required package source of truth
 - `hooks.sh` — optional upstream-resolution overrides
 - `files/` — optional static assets copied into the temporary workspace
@@ -41,8 +43,8 @@ The critical point is that **publish is gated by the same install smoke-test pat
 | Entry point | Purpose |
 |---|---|
 | `scripts/ci_manager.sh discover` | Find all package directories that contain `package.conf` |
-| `scripts/ci_manager.sh run_test <pkg>` | Build, install, and smoke-test one package |
-| `scripts/ci_manager.sh run_update <pkg> ...` | Resolve upstream state, render packaging outputs, optionally install-test, and publish to AUR |
+| `scripts/ci_manager.sh run_test <pkg>` | Build, install, and smoke-test one package (accepts bare package names or `packages/<pkgname>` paths) |
+| `scripts/ci_manager.sh run_update <pkg> ...` | Resolve upstream state, render packaging outputs, optionally install-test, and publish to AUR (accepts bare package names or `packages/<pkgname>` paths) |
 | `.github/workflows/package-test.yml` | Pull request / push validation workflow |
 | `.github/workflows/aur-publish.yml` | Scheduled/manual publish workflow |
 

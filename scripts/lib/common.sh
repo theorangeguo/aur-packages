@@ -12,6 +12,8 @@ log_info() {
     echo "==> $1"
 }
 
+PACKAGE_ROOT_DIR=${PACKAGE_ROOT_DIR:-packages}
+
 log_error() {
     echo "!! ERROR: $1" >&2
 }
@@ -24,6 +26,30 @@ die() {
 require_cmd() {
     local cmd=$1
     command -v "$cmd" >/dev/null 2>&1 || die "Required command not found: $cmd"
+}
+
+resolve_package_dir_input() {
+    local input=$1
+    local candidate
+
+    [ -n "$input" ] || die "Package directory is required"
+    input=${input#./}
+
+    case "$input" in
+        packages/*)
+            [[ "$input" =~ ^packages/[a-zA-Z0-9._-]+$ ]] || die "Invalid package directory: $input"
+            candidate=$input
+            ;;
+        *)
+            [[ "$input" =~ ^[a-zA-Z0-9._-]+$ ]] || die "Invalid package directory: $input"
+            candidate="${PACKAGE_ROOT_DIR}/${input}"
+            ;;
+    esac
+
+    [ -d "$candidate" ] || die "Directory '$candidate' does not exist."
+    [ -f "$candidate/package.conf" ] || die "package.conf not found in '$candidate'."
+
+    printf '%s' "$candidate"
 }
 
 expand_template() {

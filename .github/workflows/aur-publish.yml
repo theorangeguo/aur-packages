@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: 'Single package to publish (optional)'
+        description: 'Single package to publish (pkgname or packages/<pkgname>, optional)'
         required: false
         type: string
       dry_run:

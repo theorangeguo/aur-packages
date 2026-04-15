@@ -7,10 +7,10 @@ For the end-to-end repository workflow, see [WORKFLOW.md](WORKFLOW.md).
 ## 📋 Standard Process for New Packages
 
 ### 1. Create Package Directory
-Create a new directory whose name matches `PKGNAME`.
+Create a new directory under `packages/` whose name matches `PKGNAME`.
 
 ```bash
-mkdir my-package-name
+mkdir -p packages/my-package-name
 ```
 
 ### 2. Create `package.conf`
@@ -140,6 +140,8 @@ Before committing, test the package locally from the repository root.
 ./scripts/ci_manager.sh run_test my-package-name
 ```
 
+The manager accepts either a bare package name like `my-package-name` or an explicit path like `packages/my-package-name`.
+
 This is the smallest meaningful test in this repo. It resolves upstream state, renders a temporary `PKGBUILD`, refreshes checksums, generates `.SRCINFO`, and verifies the build.
 
 `run_test` is the stronger validation path. It runs in an Arch container, builds the package, installs it with `pacman -U`, and checks the installed files. The scheduled AUR publish workflow now uses that same install-test path before publishing package updates.
@@ -183,10 +185,11 @@ Rules:
 ### Package directory layout
 
 ```text
-package-name/
-  package.conf
-  hooks.sh        # optional
-  files/          # optional
+packages/
+  package-name/
+    package.conf
+    hooks.sh        # optional
+    files/          # optional
 ```
 
 ### Generated files

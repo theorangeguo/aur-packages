@@ -31,7 +31,7 @@ TARGET_PKGVER=""
 TARGET_PKGREL=1
 
 show_help() {
-    echo "Usage: ./scripts/test_package.sh <package_dir>"
+    echo "Usage: ./scripts/test_package.sh <package_name_or_dir>"
 }
 
 cleanup() {
@@ -58,6 +58,8 @@ main() {
     require_cmd makepkg
     require_cmd updpkgsums
     require_cmd pacman
+
+    PKG_DIR=$(resolve_package_dir_input "$PKG_DIR")
 
     load_package_config "$PKG_DIR"
     load_package_hooks

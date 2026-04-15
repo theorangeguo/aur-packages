@@ -43,7 +43,7 @@ AUR_SSH_HOST=aur.archlinux.org
 AUR_SSH_HOST_ED25519_FINGERPRINT='SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4'
 
 show_help() {
-    echo "Usage: ./auto_update.sh [package_dir] [options]"
+    echo "Usage: ./auto_update.sh [package_name_or_dir] [options]"
     echo ""
     echo "Options:"
     echo "  --dry-run            Simulate run, do not push to AUR"
@@ -166,12 +166,6 @@ main() {
         die "No package directory specified."
     }
 
-    [[ "$PKG_DIR" =~ ^(\./)?[a-zA-Z0-9._-]+$ ]] || die "Invalid package directory: $PKG_DIR"
-    PKG_DIR=${PKG_DIR#./}
-
-    [ -d "$PKG_DIR" ] || die "Directory '$PKG_DIR' does not exist."
-    [ -f "$PKG_DIR/package.conf" ] || die "package.conf not found in '$PKG_DIR'."
-
     if [ "$SKIP_BUILD" = true ] && [ "$VERIFY_INSTALL" = true ]; then
         die "--verify-install cannot be used with --skip-build"
     fi
@@ -185,6 +179,8 @@ main() {
     require_cmd git
     require_cmd makepkg
     require_cmd updpkgsums
+
+    PKG_DIR=$(resolve_package_dir_input "$PKG_DIR")
 
     load_package_config "$PKG_DIR"
     load_package_hooks
