@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: 'Single package to validate (optional)'
+        description: 'Single package to validate (pkgname or packages/<pkgname>, optional)'
         required: false
         type: string
 

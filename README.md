@@ -49,7 +49,7 @@ sudo ./scripts/ci_manager.sh setup_user
 
 **2. Run Update (Dry Run):**
 ```bash
-# Syntax: ./scripts/ci_manager.sh run_update <package_dir> [flags]
+# Syntax: ./scripts/ci_manager.sh run_update <pkgname-or-package_dir> [flags]
 ./scripts/ci_manager.sh run_update antigravity-tools-bin --dry-run
 ```
 
@@ -69,7 +69,7 @@ This path uses an ephemeral Arch container locally, builds the package, installs
 
 Please refer to [CONTRIBUTING.md](docs/CONTRIBUTING.md) for the standard process of adding and maintaining packages.
 
-Each package directory now keeps only:
+Each package directory now lives under `packages/<pkgname>/` and keeps only:
 - `package.conf` as the source of truth
 - optional `hooks.sh` for special upstream logic
 - optional `files/` for static assets such as service units or licenses

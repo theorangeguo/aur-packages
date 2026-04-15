@@ -5,6 +5,7 @@ COMMAND=${1:-}
 shift || true
 
 ARCH_BASE_DEVEL_IMAGE=${ARCH_BASE_DEVEL_IMAGE:-archlinux:base-devel@sha256:01bd0ee1c23c3dec1dcb0fce558150a222ee2ef0a3776404de33d0714bcefbb0}
+PACKAGE_ROOT=packages
 
 detect_container_runtime() {
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -49,15 +50,39 @@ retry_command() {
     done
 }
 
+canonical_package_dir() {
+    local input=$1
+    local candidate
+
+    [ -n "$input" ] || die "Package directory is required"
+    input=${input#./}
+
+    case "$input" in
+        packages/*)
+            [[ "$input" =~ ^packages/[a-zA-Z0-9._-]+$ ]] || die "Invalid package directory name: $input"
+            candidate=$input
+            ;;
+        *)
+            [[ "$input" =~ ^[a-zA-Z0-9._-]+$ ]] || die "Invalid package directory name: $input"
+            candidate="${PACKAGE_ROOT}/${input}"
+            ;;
+    esac
+
+    [ -f "$candidate/package.conf" ] || die "package.conf not found in $candidate"
+    printf '%s' "$candidate"
+}
+
 collect_all_packages() {
     PACKAGES=()
+
+    [ -d "$PACKAGE_ROOT" ] || return 0
 
     while IFS= read -r file; do
         local dir
         dir=$(dirname "$file")
         dir=${dir#./}
         PACKAGES+=("$dir")
-    done < <(find . -maxdepth 2 -name package.conf | sort)
+    done < <(find "$PACKAGE_ROOT" -mindepth 2 -maxdepth 2 -name package.conf | sort)
 }
 
 append_unique_package() {
@@ -100,8 +125,15 @@ discover_changed_packages() {
                 ;;
         esac
 
-        candidate_dir=${changed_file%%/*}
-        [ "$candidate_dir" != "$changed_file" ] || continue
+        case "$changed_file" in
+            packages/*/*)
+                candidate_dir=$(printf '%s' "$changed_file" | cut -d/ -f1-2)
+                ;;
+            *)
+                continue
+                ;;
+        esac
+
         [ -f "$candidate_dir/package.conf" ] || continue
         append_unique_package "$candidate_dir"
     done
@@ -152,9 +184,7 @@ run_discovery() {
     fi
 
     if [ -n "$package_filter" ]; then
-        [[ "$package_filter" =~ ^(\./)?[a-zA-Z0-9._-]+$ ]] || die "Invalid package directory name: $package_filter"
-        [ -f "$package_filter/package.conf" ] || die "package.conf not found in ${package_filter}"
-        PACKAGES=("${package_filter#./}")
+        PACKAGES=("$(canonical_package_dir "$package_filter")")
     elif [ -n "$base_ref" ] && [ -n "$head_ref" ]; then
         discover_changed_packages "$base_ref" "$head_ref"
     else
@@ -185,7 +215,7 @@ run_discovery() {
 
 show_help() {
     cat <<EOF
-Usage: $0 {discover [--package <pkg> | --base-ref <ref> --head-ref <ref>]|install|setup_user|run_update <pkg> [args]|run_test <pkg>}
+Usage: $0 {discover [--package <pkgname-or-packages/pkgname> | --base-ref <ref> --head-ref <ref>]|install|setup_user|run_update <pkgname-or-packages/pkgname> [args]|run_test <pkgname-or-packages/pkgname>}
 EOF
 }
 
@@ -224,13 +254,7 @@ case "$COMMAND" in
         PKG_DIR=$1
         shift || true
         ARGS=("$@")
-
-        if [[ ! "$PKG_DIR" =~ ^(\./)?[a-zA-Z0-9._-]+$ ]]; then
-            die "Invalid package directory name: $PKG_DIR"
-        fi
-
-        PKG_DIR=${PKG_DIR#./}
-        [ -f "$PKG_DIR/package.conf" ] || die "package.conf not found in $PKG_DIR"
+        PKG_DIR=$(canonical_package_dir "$PKG_DIR")
 
         chmod +x scripts/auto_update.sh
 
@@ -250,13 +274,7 @@ case "$COMMAND" in
     run_test)
         PKG_DIR=$1
         shift || true
-
-        if [[ ! "$PKG_DIR" =~ ^(\./)?[a-zA-Z0-9._-]+$ ]]; then
-            die "Invalid package directory name: $PKG_DIR"
-        fi
-
-        PKG_DIR=${PKG_DIR#./}
-        [ -f "$PKG_DIR/package.conf" ] || die "package.conf not found in $PKG_DIR"
+        PKG_DIR=$(canonical_package_dir "$PKG_DIR")
 
         chmod +x scripts/test_package.sh
 

@@ -142,12 +142,12 @@ bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build]
 - Prefer changes in `scripts/` over adding logic to workflow YAML.
 
 ## When adding or removing packages
-- Create a new directory matching `PKGNAME`.
+- Create a new `packages/<pkgname>/` directory matching `PKGNAME`.
 - Add `package.conf`.
 - Add `hooks.sh` only if the built-in upstream resolvers are insufficient.
 - Add `files/` only for static assets such as service units, licenses, or static `.install` scripts.
 - Update the `README.md` package table.
-- When removing a package, remove its directory and README entry together.
+- When removing a package, remove its `packages/<pkgname>/` directory and README entry together.
 
 ## Preferred agent behavior
 - Read the docs before making structural changes.

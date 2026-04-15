@@ -56,7 +56,7 @@ load_package_config() {
     INSTALL_MODE=${INSTALL_MODE:-none}
     SERVICE_MODE=${SERVICE_MODE:-none}
     SERVICE_SCOPE=${SERVICE_SCOPE:-user}
-    PACKAGING_REPO_URL=${PACKAGING_REPO_URL:-https://github.com/orange-guo/aur-packages/tree/main/${PKGNAME}}
+    PACKAGING_REPO_URL=${PACKAGING_REPO_URL:-https://github.com/orange-guo/aur-packages/tree/main/packages/${PKGNAME}}
     WRAPPER_SOURCE_PATH=${WRAPPER_SOURCE_PATH:-}
     WRAPPER_INSTALL_PATH=${WRAPPER_INSTALL_PATH:-}
     WRAPPER_MODE=${WRAPPER_MODE:-755}

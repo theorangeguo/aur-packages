@@ -32,10 +32,11 @@ The pipeline auto-discovers packages by locating `package.conf` files.
 Each package directory should contain:
 
 ```text
-package-name/
-  package.conf
-  hooks.sh        # optional
-  files/          # optional
+packages/
+  package-name/
+    package.conf
+    hooks.sh        # optional
+    files/          # optional
 ```
 
 `package.conf` is the source of truth. CI renders `PKGBUILD` and `.SRCINFO` only during execution.
@@ -78,6 +79,8 @@ sudo ./scripts/ci_manager.sh setup_user
 ./scripts/ci_manager.sh run_update antigravity-tools-bin --dry-run
 ./scripts/ci_manager.sh run_test antigravity-tools-bin
 ```
+
+The manager accepts either a bare package name or an explicit `packages/<pkgname>` path.
 
 This is the repo's standard test path.
 
