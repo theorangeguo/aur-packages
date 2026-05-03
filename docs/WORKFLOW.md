@@ -43,6 +43,7 @@ The critical point is that **publish is gated by the same install smoke-test pat
 | Entry point | Purpose |
 |---|---|
 | `scripts/ci_manager.sh discover` | Find all package directories that contain `package.conf` |
+| `scripts/ci_manager.sh preflight <pkg>` | Resolve upstream metadata and asset selectors without building or publishing |
 | `scripts/ci_manager.sh run_test <pkg>` | Build, install, and smoke-test one package (accepts bare package names or `packages/<pkgname>` paths) |
 | `scripts/ci_manager.sh run_update <pkg> ...` | Resolve upstream state, render packaging outputs, optionally install-test, and publish to AUR (accepts bare package names or `packages/<pkgname>` paths) |
 | `.github/workflows/package-test.yml` | Pull request / push validation workflow |
@@ -68,6 +69,8 @@ For validation, discovery is change-aware:
 - manual runs can target a single package
 - pull requests and normal pushes test only changed packages
 - automation changes under `scripts/` or `.github/workflows/` trigger a full sweep
+
+For scheduled publishing, each `aur-publish.yml` package job runs a metadata preflight before build/publish work. The preflight resolves the package's upstream state and validates GitHub asset selectors without building or publishing, so upstream naming changes fail fast with focused logs while preserving package-level isolation.
 
 ```mermaid
 flowchart TD
@@ -179,6 +182,9 @@ The checks confirm installation shape, not full runtime behavior.
 
 # Dry-run publish logic without pushing
 ./scripts/ci_manager.sh run_update <package_dir> --dry-run
+
+# Fast metadata/asset selector preflight
+./scripts/ci_manager.sh preflight <package_dir>
 
 # Full publish-path validation (recommended in CI or an ephemeral container)
 ./scripts/ci_manager.sh run_update <package_dir> --dry-run --verify-install

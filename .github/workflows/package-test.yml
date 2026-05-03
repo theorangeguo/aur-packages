@@ -60,6 +60,7 @@ jobs:
       - name: Package install test
         env:
           CI: true
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           chmod +x scripts/ci_manager.sh scripts/test_package.sh
           ./scripts/ci_manager.sh install

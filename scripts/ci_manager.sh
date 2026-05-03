@@ -50,6 +50,14 @@ retry_command() {
     done
 }
 
+initialize_ci_pacman_keyring() {
+    [ "${CI:-}" = "true" ] || return 0
+    command -v pacman-key >/dev/null 2>&1 || return 0
+
+    log "Initializing pacman keyring for CI..."
+    pacman-key --init >/dev/null 2>&1 || die "Failed to initialize pacman keyring"
+}
+
 canonical_package_dir() {
     local input=$1
     local candidate
@@ -215,7 +223,7 @@ run_discovery() {
 
 show_help() {
     cat <<EOF
-Usage: $0 {discover [--package <pkgname-or-packages/pkgname> | --base-ref <ref> --head-ref <ref>]|install|setup_user|run_update <pkgname-or-packages/pkgname> [args]|run_test <pkgname-or-packages/pkgname>}
+Usage: $0 {discover [--package <pkgname-or-packages/pkgname> | --base-ref <ref> --head-ref <ref>]|install|setup_user|preflight <pkgname-or-packages/pkgname>|run_update <pkgname-or-packages/pkgname> [args]|run_test <pkgname-or-packages/pkgname>}
 EOF
 }
 
@@ -228,6 +236,7 @@ case "$COMMAND" in
         log "Installing dependencies..."
         if [ -f /etc/arch-release ]; then
             require_root install
+            initialize_ci_pacman_keyring
             retry_command 3 pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq \
                 || die "Failed to install required Arch packages"
         else
@@ -250,6 +259,16 @@ case "$COMMAND" in
         fi
         ;;
 
+    preflight)
+        PKG_DIR=$1
+        shift || true
+        PKG_DIR=$(canonical_package_dir "$PKG_DIR")
+
+        chmod +x scripts/auto_update.sh
+        log "Running package metadata preflight..."
+        bash scripts/auto_update.sh "$PKG_DIR" --preflight
+        ;;
+
     run_update)
         PKG_DIR=$1
         shift || true
@@ -264,6 +283,8 @@ case "$COMMAND" in
             AUR_USERNAME="${AUR_USERNAME:-}" \
             AUR_EMAIL="${AUR_EMAIL:-}" \
             AUR_SSH_PRIVATE_KEY="${AUR_SSH_PRIVATE_KEY:-}" \
+            GITHUB_TOKEN="${GITHUB_TOKEN:-}" \
+            GH_TOKEN="${GH_TOKEN:-}" \
             bash scripts/auto_update.sh "$PKG_DIR" "${ARGS[@]}"
         else
             log "Running as current user ($(whoami))..."

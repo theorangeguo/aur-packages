@@ -30,6 +30,7 @@ source "${SCRIPT_DIR}/lib/package_pipeline.sh"
 DRY_RUN=false
 SKIP_BUILD=false
 VERIFY_INSTALL=false
+PREFLIGHT_ONLY=false
 PKG_DIR=""
 TMP_ROOT=""
 SSH_KEY_FILE=""
@@ -49,6 +50,7 @@ show_help() {
     echo "  --dry-run            Simulate run, do not push to AUR"
     echo "  --skip-build         Skip makepkg step (metadata update only)"
     echo "  --verify-install     Install built package and run smoke checks before publish (recommended in CI/container only)"
+    echo "  --preflight          Resolve upstream metadata and asset selectors only"
     echo "  -h, --help           Show this help"
 }
 
@@ -75,12 +77,16 @@ prepare_aur_ssh() {
     require_cmd ssh-keygen
     require_cmd awk
 
+    fetch_aur_ssh_host_key() {
+        ssh-keyscan -t ed25519 "$AUR_SSH_HOST" > "$SSH_KNOWN_HOSTS_FILE" 2>/dev/null
+    }
+
     SSH_KEY_FILE=$(mktemp)
     printf '%s\n' "$AUR_SSH_PRIVATE_KEY" | tr -d '\r' > "$SSH_KEY_FILE"
     chmod 600 "$SSH_KEY_FILE"
 
     SSH_KNOWN_HOSTS_FILE=$(mktemp)
-    ssh-keyscan -t ed25519 "$AUR_SSH_HOST" > "$SSH_KNOWN_HOSTS_FILE" 2>/dev/null \
+    retry_with_backoff "Fetch AUR SSH host key" 3 fetch_aur_ssh_host_key \
         || die "Failed to fetch AUR SSH host key"
     [ -s "$SSH_KNOWN_HOSTS_FILE" ] || die "Fetched empty AUR SSH host key set"
 
@@ -136,8 +142,9 @@ publish_to_aur() {
 
         GIT_SSH_COMMAND="$git_ssh_command" \
             git -C "$AUR_REPO_DIR" -c user.name="${AUR_USERNAME:-orange-guo}" -c user.email="${AUR_EMAIL:-aur@example.invalid}" commit -m "$commit_msg"
-        GIT_SSH_COMMAND="$git_ssh_command" \
-            git -C "$AUR_REPO_DIR" push origin master
+        export GIT_SSH_COMMAND="$git_ssh_command"
+        retry_with_backoff "Push AUR update for ${PKGNAME}" 3 git -C "$AUR_REPO_DIR" push origin master
+        unset GIT_SSH_COMMAND
         rm -f "$SSH_KEY_FILE"
         SSH_KEY_FILE=""
         rm -f "$SSH_KNOWN_HOSTS_FILE"
@@ -148,12 +155,28 @@ publish_to_aur() {
     fi
 }
 
+run_preflight() {
+    log_group_start "Preflight: ${PKG_DIR}"
+    log_info "Package: $PKGNAME"
+    log_info "Template: $PACKAGE_TEMPLATE"
+    log_info "Upstream Resolver: $UPSTREAM_TYPE"
+    log_group_end
+
+    log_group_start "Resolve Upstream"
+    dispatch_upstream_resolution
+    log_info "Resolved Upstream Version: $RESOLVED_VERSION"
+    log_group_end
+
+    log_info "Preflight passed for ${PKGNAME}."
+}
+
 main() {
     while [[ "$#" -gt 0 ]]; do
         case $1 in
             --dry-run) DRY_RUN=true ;;
             --skip-build) SKIP_BUILD=true ;;
             --verify-install) VERIFY_INSTALL=true ;;
+            --preflight) PREFLIGHT_ONLY=true ;;
             -h|--help) show_help; exit 0 ;;
             -*) die "Unknown parameter: $1" ;;
             *) PKG_DIR=$1 ;;
@@ -170,20 +193,29 @@ main() {
         die "--verify-install cannot be used with --skip-build"
     fi
 
+    if [ "$PREFLIGHT_ONLY" = true ] && [ "$VERIFY_INSTALL" = true ]; then
+        die "--verify-install cannot be used with --preflight"
+    fi
+
     if [ "$VERIFY_INSTALL" = true ] && [ "$(id -u)" -ne 0 ]; then
         die "--verify-install requires running as root"
     fi
 
     cd "$REPO_ROOT"
 
-    require_cmd git
-    require_cmd makepkg
-    require_cmd updpkgsums
-
     PKG_DIR=$(resolve_package_dir_input "$PKG_DIR")
 
     load_package_config "$PKG_DIR"
     load_package_hooks
+
+    if [ "$PREFLIGHT_ONLY" = true ]; then
+        run_preflight
+        exit 0
+    fi
+
+    require_cmd git
+    require_cmd makepkg
+    require_cmd updpkgsums
 
     TMP_ROOT=$(mktemp -d)
     AUR_DIR="${TMP_ROOT}/aur"
