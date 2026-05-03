@@ -7,13 +7,18 @@ prepare_aur_repo() {
     local aur_package_url="https://aur.archlinux.org/packages/${package_name}"
     local package_status
 
-    if git clone "$aur_readonly_url" "$aur_dir" >/dev/null 2>&1; then
+    clone_aur_repo() {
+        rm -rf "$aur_dir"
+        git clone -q "$aur_readonly_url" "$aur_dir"
+    }
+
+    if retry_with_backoff "Clone AUR repository for ${package_name}" 3 clone_aur_repo; then
         AUR_REPO_DIR=$aur_dir
         return 0
     fi
 
     require_cmd curl
-    package_status=$(curl -sS -L -o /dev/null -w '%{http_code}' "$aur_package_url" || true)
+    package_status=$(fetch_http_status_with_retry "$aur_package_url" || true)
 
     case "$package_status" in
         200)

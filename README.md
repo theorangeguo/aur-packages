@@ -53,12 +53,17 @@ sudo ./scripts/ci_manager.sh setup_user
 ./scripts/ci_manager.sh run_update antigravity-tools-bin --dry-run
 ```
 
-**3. Run Publish Path Verification (Container/CI Recommended):**
+**3. Run Metadata Preflight:**
+```bash
+./scripts/ci_manager.sh preflight cli-proxy-api-bin
+```
+
+**4. Run Publish Path Verification (Container/CI Recommended):**
 ```bash
 ./scripts/ci_manager.sh run_update claude-code-stable-bin --dry-run --verify-install
 ```
 
-**4. Run Containerized Install Test:**
+**5. Run Containerized Install Test:**
 ```bash
 ./scripts/ci_manager.sh run_test antigravity-tools-bin
 ```

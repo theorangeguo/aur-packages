@@ -70,18 +70,22 @@ jobs:
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           CI: true
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           chmod +x scripts/ci_manager.sh
 
           # 1. Install System Dependencies
           ./scripts/ci_manager.sh install
 
-          # 2. Setup Build User
+          # 2. Fast metadata/asset preflight
+          ./scripts/ci_manager.sh preflight "${{ matrix.package }}"
+
+          # 3. Setup Build User
           ./scripts/ci_manager.sh setup_user
 
-          # 3. Construct Arguments
+          # 4. Construct Arguments
           ARGS=()
           if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then ARGS+=(--dry-run); fi
 
-          # 4. Run Update + Install Verification
+          # 5. Run Update + Install Verification
           ./scripts/ci_manager.sh run_update "${{ matrix.package }}" --verify-install "${ARGS[@]}"

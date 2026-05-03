@@ -29,8 +29,16 @@
 ## Repository workflow
 - Main flow: discover packages -> read AUR state -> resolve upstream -> render temporary `PKGBUILD` -> refresh checksums -> generate `.SRCINFO` -> build -> publish to AUR.
 - Validation flow: discover packages -> resolve upstream -> render temporary `PKGBUILD` -> build -> install package in a container -> run smoke checks.
-- Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh run_update <package_dir> ...`, `scripts/ci_manager.sh run_test <package_dir>`, `scripts/auto_update.sh <package_dir> ...`, `scripts/test_package.sh <package_dir>`
+- Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh preflight <package_dir>`, `scripts/ci_manager.sh run_update <package_dir> ...`, `scripts/ci_manager.sh run_test <package_dir>`, `scripts/auto_update.sh <package_dir> ...`, `scripts/test_package.sh <package_dir>`
 - When touching update logic, inspect `scripts/auto_update.sh`, the relevant files under `scripts/lib/`, and any package-local `hooks.sh`.
+
+## GitHub Actions failure triage
+- When investigating failed Actions, first use `gh run list` and `gh run view <run-id> --log-failed` to identify the exact failed package/job before editing.
+- Distinguish package-specific failures from transient infrastructure failures. Treat AUR clone failures, GitHub API timeouts, and network download failures as potentially transient unless repeated.
+- For GitHub release asset matching failures, inspect upstream release asset names and compare them against `ASSET_SELECTOR_*` in the affected package.
+- Prefer tolerant architecture selectors when upstream naming commonly varies, such as accepting both `arm64` and `aarch64` where appropriate.
+- Keep fixes package-scoped unless repeated failures show the shared resolver or CI scripts are at fault.
+- After package config changes, run `./scripts/ci_manager.sh run_update <package_dir> --dry-run` as the minimum verification.
 
 ## Build / lint / test / verification commands
 

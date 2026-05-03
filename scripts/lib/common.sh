@@ -23,6 +23,42 @@ die() {
     exit 1
 }
 
+retry_with_backoff() {
+    local description=$1
+    local max_attempts=${2:-3}
+    shift 2
+    local attempt=1
+    local status=0
+    local delay=0
+
+    while true; do
+        if "$@"; then
+            return 0
+        fi
+
+        status=$?
+        if [ "$attempt" -ge "$max_attempts" ]; then
+            log_error "${description} failed after ${max_attempts} attempts (exit ${status})."
+            return "$status"
+        fi
+
+        delay=$((attempt * 2))
+        log_info "${description} failed (attempt ${attempt}/${max_attempts}, exit ${status}); retrying in ${delay}s."
+        sleep "$delay"
+        attempt=$((attempt + 1))
+    done
+}
+
+fetch_http_status_with_retry() {
+    local url=$1
+
+    [ -n "$url" ] || die "URL is required"
+    require_cmd curl
+
+    curl -sS -L --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 20 \
+        -o /dev/null -w '%{http_code}' "$url"
+}
+
 require_cmd() {
     local cmd=$1
     command -v "$cmd" >/dev/null 2>&1 || die "Required command not found: $cmd"
@@ -226,10 +262,10 @@ prefetch_remote_source() {
     [ -e "$partial_path" ] && [ ! -s "$partial_path" ] && rm -f "$partial_path"
 
     log_info "Prefetching source: $(basename "$target_path")"
-    if ! curl -fsSL --retry 20 --retry-all-errors --retry-delay 2 -C - -o "$partial_path" "$url"; then
+    if ! curl -fsSL --retry 20 --retry-all-errors --retry-delay 2 --connect-timeout 20 -C - -o "$partial_path" "$url"; then
         log_info "Resume attempt failed for $(basename "$target_path"); retrying from scratch."
         rm -f "$partial_path"
-        curl -fsSL --retry 20 --retry-all-errors --retry-delay 2 -o "$partial_path" "$url" \
+        curl -fsSL --retry 20 --retry-all-errors --retry-delay 2 --connect-timeout 20 -o "$partial_path" "$url" \
             || die "Failed to prefetch source: $url"
     fi
 

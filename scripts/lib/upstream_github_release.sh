@@ -1,5 +1,125 @@
 #!/bin/bash
 
+GITHUB_API_FAILURE_REASON=""
+GITHUB_RELEASE_TAG=""
+GITHUB_RELEASE_WEB_ASSET_URLS=()
+
+github_api_request_to_file() {
+    local api_url=$1
+    local output_file=$2
+    local error_file
+    local http_code
+    local curl_status
+    local curl_error
+    local token=${GITHUB_TOKEN:-${GH_TOKEN:-}}
+    local auth_args=()
+
+    if [ -n "$token" ]; then
+        auth_args=(-H "Authorization: Bearer ${token}")
+    fi
+
+    error_file=$(mktemp)
+    set +e
+    http_code=$(curl -sS -L \
+        --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 20 \
+        -H "Accept: application/vnd.github+json" \
+        -H "User-Agent: aur-packages-ci" \
+        "${auth_args[@]}" \
+        -o "$output_file" \
+        -w '%{http_code}' \
+        "$api_url" 2>"$error_file")
+    curl_status=$?
+    set -e
+
+    if [ "$curl_status" -ne 0 ]; then
+        curl_error=$(<"$error_file")
+        curl_error=${curl_error//$'\n'/ }
+        GITHUB_API_FAILURE_REASON="curl exit ${curl_status}"
+        if [ -n "$http_code" ] && [ "$http_code" != "000" ]; then
+            GITHUB_API_FAILURE_REASON+=", HTTP ${http_code}"
+        fi
+        if [ -n "$curl_error" ]; then
+            GITHUB_API_FAILURE_REASON+=": ${curl_error}"
+        fi
+        rm -f "$error_file"
+        return 1
+    fi
+
+    rm -f "$error_file"
+
+    if [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+        local api_message
+        api_message=$(jq -r '.message // empty' "$output_file" 2>/dev/null || true)
+        GITHUB_API_FAILURE_REASON="HTTP ${http_code}"
+        if [ -n "$api_message" ]; then
+            GITHUB_API_FAILURE_REASON+=": ${api_message}"
+        fi
+        return 1
+    fi
+}
+
+github_fetch_latest_release_url() {
+    local url=$1
+    local error_file
+    local latest_url
+    local curl_status
+    local curl_error
+
+    error_file=$(mktemp)
+    set +e
+    latest_url=$(curl -fsSLI \
+        --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 20 \
+        -H "User-Agent: aur-packages-ci" \
+        -o /dev/null \
+        -w '%{url_effective}' \
+        "$url" 2>"$error_file")
+    curl_status=$?
+    set -e
+
+    if [ "$curl_status" -ne 0 ]; then
+        curl_error=$(<"$error_file")
+        curl_error=${curl_error//$'\n'/ }
+        rm -f "$error_file"
+        die "Failed to resolve latest GitHub release URL (curl exit ${curl_status}${curl_error:+: ${curl_error}})"
+    fi
+
+    rm -f "$error_file"
+    printf '%s' "$latest_url"
+}
+
+github_fetch_url_text() {
+    local url=$1
+
+    curl -fsSL \
+        --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 20 \
+        -H "User-Agent: aur-packages-ci" \
+        "$url"
+}
+
+log_github_asset_match_failure() {
+    local arch=$1
+    local selector=$2
+    local release_tag=$3
+    shift 3
+    local assets=("$@")
+    local asset
+
+    log_error "Failed to match GitHub release asset for ${arch}"
+    log_error "Release tag: ${release_tag:-unknown}"
+    log_error "Regex: ${selector}"
+
+    if [ "${#assets[@]}" -eq 0 ]; then
+        log_error "Available assets: <none>"
+    else
+        log_error "Available assets:"
+        for asset in "${assets[@]}"; do
+            log_error "  ${asset}"
+        done
+    fi
+
+    exit 1
+}
+
 resolve_github_release_assets() {
     require_cmd curl
     require_cmd jq
@@ -11,15 +131,18 @@ resolve_github_release_assets() {
         api_url="https://api.github.com/repos/${UPSTREAM_REPO_USER}/${UPSTREAM_REPO_NAME}/releases/latest"
     fi
 
-    local response
-    if ! response=$(curl -fsSL \
-        -H "Accept: application/vnd.github+json" \
-        -H "User-Agent: aur-packages-ci" \
-        "$api_url" 2>/dev/null); then
-        log_info "GitHub API unavailable; falling back to release page scraping."
+    local response_file
+    response_file=$(mktemp)
+    if ! github_api_request_to_file "$api_url" "$response_file"; then
+        log_info "GitHub API unavailable (${GITHUB_API_FAILURE_REASON:-unknown reason}); falling back to release page scraping."
+        rm -f "$response_file"
         resolve_github_release_assets_via_web
         return 0
     fi
+
+    local response
+    response=$(<"$response_file")
+    rm -f "$response_file"
 
     local release_json=$response
     if [ "$UPSTREAM_ALLOW_PRERELEASE" = "true" ]; then
@@ -29,6 +152,7 @@ resolve_github_release_assets() {
     local latest_tag
     latest_tag=$(printf '%s' "$release_json" | jq -r '.tag_name // empty')
     [ -n "$latest_tag" ] || die "Could not extract tag_name from GitHub release metadata"
+    GITHUB_RELEASE_TAG=$latest_tag
 
     RESOLVED_VERSION=$latest_tag
     if [ -n "$UPSTREAM_TAG_PREFIX" ] && [[ "$RESOLVED_VERSION" == "${UPSTREAM_TAG_PREFIX}"* ]]; then
@@ -41,14 +165,11 @@ resolve_github_release_assets() {
 
 resolve_github_release_assets_via_web() {
     local latest_url
-    latest_url=$(curl -fsSLI \
-        -H "User-Agent: aur-packages-ci" \
-        -o /dev/null \
-        -w '%{url_effective}' \
-        "https://github.com/${UPSTREAM_REPO_USER}/${UPSTREAM_REPO_NAME}/releases/latest") || die "Failed to resolve latest GitHub release URL"
+    latest_url=$(github_fetch_latest_release_url "https://github.com/${UPSTREAM_REPO_USER}/${UPSTREAM_REPO_NAME}/releases/latest")
 
     local latest_tag=${latest_url##*/}
     [ -n "$latest_tag" ] || die "Could not determine latest GitHub release tag"
+    GITHUB_RELEASE_TAG=$latest_tag
 
     RESOLVED_VERSION=$latest_tag
     if [ -n "$UPSTREAM_TAG_PREFIX" ] && [[ "$RESOLVED_VERSION" == "${UPSTREAM_TAG_PREFIX}"* ]]; then
@@ -57,7 +178,7 @@ resolve_github_release_assets_via_web() {
 
     local assets_url="https://github.com/${UPSTREAM_REPO_USER}/${UPSTREAM_REPO_NAME}/releases/expanded_assets/${latest_tag}"
     local assets_html
-    assets_html=$(curl -fsSL -H "User-Agent: aur-packages-ci" "$assets_url") || die "Failed to fetch GitHub expanded assets page"
+    assets_html=$(github_fetch_url_text "$assets_url") || die "Failed to fetch GitHub expanded assets page: ${assets_url}"
 
     mapfile -t GITHUB_RELEASE_WEB_ASSET_URLS < <(
         printf '%s' "$assets_html" \
@@ -90,7 +211,11 @@ resolve_github_asset_for_arch() {
         | .browser_download_url
         ' | head -n 1)
 
-    [ -n "$download_url" ] || die "Failed to match GitHub release asset for ${arch} using regex: ${selector}"
+    if [ -z "$download_url" ]; then
+        local asset_names=()
+        mapfile -t asset_names < <(printf '%s' "$release_json" | jq -r '.assets[].name // empty')
+        log_github_asset_match_failure "$arch" "$selector" "$GITHUB_RELEASE_TAG" "${asset_names[@]}"
+    fi
 
     local resolved_var="RESOLVED_SOURCE_URL_${suffix}"
     printf -v "$resolved_var" '%s' "$download_url"
@@ -116,5 +241,11 @@ resolve_github_web_asset_for_arch() {
         fi
     done
 
-    die "Failed to match GitHub release asset for ${arch} using regex: ${selector}"
+    local asset_names=()
+    local available_asset_url
+    for available_asset_url in "${GITHUB_RELEASE_WEB_ASSET_URLS[@]}"; do
+        asset_names+=("${available_asset_url##*/}")
+    done
+
+    log_github_asset_match_failure "$arch" "$selector" "$GITHUB_RELEASE_TAG" "${asset_names[@]}"
 }
