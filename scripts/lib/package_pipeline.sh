@@ -30,6 +30,9 @@ render_pkgbuild() {
         source-meson)
             render_source_meson_pkgbuild "$workspace"
             ;;
+        source-cargo)
+            render_source_cargo_pkgbuild "$workspace"
+            ;;
         *)
             die "Unsupported PACKAGE_TEMPLATE: $PACKAGE_TEMPLATE"
             ;;
