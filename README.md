@@ -12,6 +12,7 @@ This repository contains my maintained Arch User Repository (AUR) packages. The 
 | [fingerprint-chromium-bin](https://aur.archlinux.org/packages/fingerprint-chromium-bin) | Fingerprint Chromium (Ungoogled Chromium with fingerprinting protection) | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 | [vibe-kanban-bin](https://aur.archlinux.org/packages/vibe-kanban-bin) | AI-powered Kanban board | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 | [wlroots0.20-vmwgfx](https://aur.archlinux.org/packages/wlroots0.20-vmwgfx) | wlroots 0.20 with a vmwgfx compatibility patch for VMware environments | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [zellij-no-mouse-resize](https://aur.archlinux.org/packages/zellij-no-mouse-resize) | Zellij with advanced_mouse_actions also gating pane mouse resize | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 
 ## 🛠 Automation Workflow
 

@@ -31,6 +31,9 @@ load_package_config() {
     ICON_CANDIDATES=("${ICON_CANDIDATES[@]}")
     MESON_OPTIONS=("${MESON_OPTIONS[@]}")
     CHECK_ARGS=("${CHECK_ARGS[@]}")
+    CARGO_FETCH_ARGS=("${CARGO_FETCH_ARGS[@]}")
+    CARGO_BUILD_ARGS=("${CARGO_BUILD_ARGS[@]}")
+    CARGO_CHECK_ARGS=("${CARGO_CHECK_ARGS[@]}")
     PERSIST_STATE_KEYS=("${PERSIST_STATE_KEYS[@]}")
     TEST_PATHS=("${TEST_PATHS[@]}")
     TEST_EXECUTABLES=("${TEST_EXECUTABLES[@]}")
@@ -88,7 +91,7 @@ load_package_config() {
         [ -n "$UPSTREAM_REPO_NAME" ] || die "UPSTREAM_REPO_NAME is required for github-release-assets"
     fi
 
-    if [ "$PACKAGE_TEMPLATE" = "binary-archive" ] || [ "$PACKAGE_TEMPLATE" = "appimage-desktop" ]; then
+    if [ "$PACKAGE_TEMPLATE" = "binary-archive" ] || [ "$PACKAGE_TEMPLATE" = "appimage-desktop" ] || [ "$PACKAGE_TEMPLATE" = "source-cargo" ]; then
         [ -n "$BINARY_NAME" ] || die "BINARY_NAME is required for template ${PACKAGE_TEMPLATE}"
         [ -n "$INSTALL_BIN_PATH" ] || die "INSTALL_BIN_PATH is required for template ${PACKAGE_TEMPLATE}"
     fi
@@ -98,7 +101,7 @@ load_package_config() {
         [ -n "$WRAPPER_INSTALL_PATH" ] || die "WRAPPER_INSTALL_PATH is required when WRAPPER_SOURCE_PATH is set"
     fi
 
-    if [ "$PACKAGE_TEMPLATE" = "source-meson" ]; then
+    if [ "$PACKAGE_TEMPLATE" = "source-meson" ] || [ "$PACKAGE_TEMPLATE" = "source-cargo" ]; then
         [ -n "$SOURCE_RENAME" ] || die "SOURCE_RENAME is required for template ${PACKAGE_TEMPLATE}"
     fi
 
