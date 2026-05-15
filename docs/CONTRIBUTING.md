@@ -99,7 +99,6 @@ Current built-in packaging templates:
 - `deb-repack` — `.deb` repackaging
 - `appimage-desktop` — AppImage extraction plus desktop/icon setup
 - `source-meson` — source builds using Meson/Ninja with optional patches
-- `source-cargo` — source builds using Cargo with optional patches
 
 Typical extra fields for `source-meson`:
 
@@ -111,21 +110,6 @@ PATCH_FILES=('files/0001-example.patch')
 MESON_OPTIONS=('-Dexamples=false')
 RUN_CHECK=false
 CHECK_ARGS=()
-```
-
-Typical extra fields for `source-cargo`:
-
-```bash
-SOURCE_RENAME='${pkgname}-${pkgver}.tar.gz'
-SOURCE_DIR='upstream-${pkgver}'
-PATCH_FILES=('files/0001-example.patch')
-BINARY_NAME=my-binary
-BINARY_SOURCE_PATH=target/release/my-binary
-INSTALL_BIN_PATH=/usr/bin/my-binary
-CARGO_FETCH_ARGS=()
-CARGO_BUILD_ARGS=('--release' '--frozen')
-CARGO_CHECK_ARGS=('--frozen')
-RUN_CHECK=false
 ```
 
 Other template-specific fields:

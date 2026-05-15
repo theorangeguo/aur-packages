@@ -1,0 +1,157 @@
+name: Build zellij-no-mouse-resize-bin
+
+on:
+  schedule:
+    - cron: '15 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_version:
+        description: 'Zellij version to build, with or without leading v (empty = latest upstream release)'
+        required: false
+        type: string
+      force:
+        description: 'Rebuild and replace the release assets even if the tag already exists'
+        required: false
+        type: boolean
+        default: false
+  push:
+    paths:
+      - '.github/workflows/build-zellij-no-mouse-resize-bin.yml'
+      - 'packages/zellij-no-mouse-resize-bin/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: zellij-no-mouse-resize-bin-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG_PREFIX: zellij-no-mouse-resize-bin-v
+      ASSET_NAME: zellij-no-mouse-resize-bin-x86_64-unknown-linux-gnu.tar.gz
+      ARCH_IMAGE: archlinux:base-devel@sha256:01bd0ee1c23c3dec1dcb0fce558150a222ee2ef0a3776404de33d0714bcefbb0
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve upstream version
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ github.event.inputs.upstream_version || '' }}
+          FORCE_REBUILD: ${{ github.event.inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+
+          version=${REQUESTED_VERSION#v}
+          if [ -z "$version" ]; then
+            version=$(gh api repos/zellij-org/zellij/releases/latest --jq '.tag_name // empty' | sed 's/^v//')
+          fi
+
+          [ -n "$version" ] || { echo "Failed to resolve Zellij version" >&2; exit 1; }
+
+          release_tag="${RELEASE_TAG_PREFIX}${version}"
+          skip=false
+          if [ "$FORCE_REBUILD" != "true" ]; then
+            asset_names=$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)
+            if printf '%s\n' "$asset_names" | grep -Fx "$ASSET_NAME" >/dev/null 2>&1; then
+              skip=true
+            fi
+          fi
+
+          {
+            echo "version=$version"
+            echo "release_tag=$release_tag"
+            echo "skip=$skip"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build patched binary in Arch
+        if: steps.resolve.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          cat > build-zellij-bin-container.sh <<'CONTAINER_SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+
+          pacman -Syu --noconfirm --needed ca-certificates curl git jq patch rust tar
+
+          useradd -m builder
+          mkdir -p /build /work/dist
+          chown -R builder:builder /build /work/dist
+
+          cat > /tmp/build-zellij-as-builder.sh <<'BUILDER_SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+
+          cd /build
+
+          curl -fsSL \
+            --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 \
+            -o zellij.tar.gz \
+            "https://github.com/zellij-org/zellij/archive/refs/tags/v${VERSION}.tar.gz"
+
+          tar -xzf zellij.tar.gz
+          cd "zellij-${VERSION}"
+
+          patch -Np1 -i /work/packages/zellij-no-mouse-resize-bin/files/0001-gate-mouse-resize-behind-advanced-actions.patch
+
+          target=$(rustc -vV | sed -n "s/^host: //p")
+          cargo fetch --locked --target "$target"
+          cargo build --release --frozen
+
+          install -Dm755 target/release/zellij /work/dist/zellij
+          install -Dm644 LICENSE.md /work/dist/LICENSE.md
+          install -Dm644 README.md /work/dist/README.md
+          BUILDER_SCRIPT
+
+          chmod +x /tmp/build-zellij-as-builder.sh
+          chown builder:builder /tmp/build-zellij-as-builder.sh
+          runuser -u builder -- env VERSION="$VERSION" /bin/bash /tmp/build-zellij-as-builder.sh
+          CONTAINER_SCRIPT
+
+          docker run --rm \
+            -e VERSION="$VERSION" \
+            -v "$PWD:/work" \
+            -v "$PWD/build-zellij-bin-container.sh:/build-zellij-bin-container.sh:ro" \
+            "$ARCH_IMAGE" \
+            bash /build-zellij-bin-container.sh
+
+      - name: Package binary archive
+        if: steps.resolve.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          tar -C dist -czf "$ASSET_NAME" zellij LICENSE.md README.md
+          sha256sum "$ASSET_NAME" > "${ASSET_NAME}.sha256sum"
+
+      - name: Publish binary release
+        if: steps.resolve.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ASSET_NAME" "${ASSET_NAME}.sha256sum" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" "$ASSET_NAME" "${ASSET_NAME}.sha256sum" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "zellij-no-mouse-resize-bin v${VERSION}" \
+              --notes "Patched Zellij v${VERSION} binary for zellij-no-mouse-resize-bin."
+          fi
+
+      - name: Report existing release
+        if: steps.resolve.outputs.skip == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
+        run: |
+          echo "Release asset already exists: ${RELEASE_TAG}/${ASSET_NAME}"

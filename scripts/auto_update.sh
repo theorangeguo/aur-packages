@@ -23,8 +23,6 @@ source "${SCRIPT_DIR}/lib/template_appimage_desktop.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/template_source_meson.sh"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/lib/template_source_cargo.sh"
-# shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/aur_state.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/package_pipeline.sh"
