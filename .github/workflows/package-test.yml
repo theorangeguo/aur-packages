@@ -13,7 +13,18 @@ on:
         type: string
 
 jobs:
+  framework-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check framework boundaries
+        run: |
+          chmod +x scripts/ci_manager.sh scripts/check_framework_boundaries.sh
+          ./scripts/ci_manager.sh check_framework_boundaries
+
   discovery:
+    needs: framework-boundary
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
