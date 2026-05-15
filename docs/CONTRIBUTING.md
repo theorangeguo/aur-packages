@@ -63,7 +63,7 @@ SERVICE_MODE=none
 Useful optional fields:
 
 - `PACKAGING_REPO_URL` — overrides the dedicated `# Packaging Repo:` comment added to rendered `PKGBUILD`s. This is separate from the AUR `url` metadata field, which should still point at upstream.
-- `BINARY_SOURCE_PATH` — path inside the extracted source archive to install as the main binary.
+- `BINARY_SOURCE_PATH` — path inside the extracted source archive to install as the main binary. Glob patterns are supported for archives with versioned top-level directories.
 - `WRAPPER_SOURCE_PATH`, `WRAPPER_INSTALL_PATH`, `WRAPPER_MODE` — install an additional wrapper script alongside the main binary.
 - `TEST_COMMANDS` — commands executed after install during smoke checks.
 
@@ -151,7 +151,7 @@ Other template-specific fields:
 
 - `deb-repack`: `DEB_RELOCATE_USR_LOCAL=true`
 - `appimage-desktop`: `APPIMAGE_APPDIR_NAME`, `DESKTOP_EXEC_REWRITE`, `DESKTOP_NAME_REWRITE`, `DESKTOP_CANDIDATES`, `ICON_CANDIDATES`
-- `binary-archive`: `WRAPPER_*`, `BINARY_SOURCE_PATH`
+- `binary-archive`: `WRAPPER_*`, `BINARY_SOURCE_PATH`; `BINARY_SOURCE_PATH`, `DOC_FILES`, and `LICENSE_FILES` may use glob patterns inside the extracted source archive.
 
 Current built-in upstream resolvers:
 - `github-release-assets`
