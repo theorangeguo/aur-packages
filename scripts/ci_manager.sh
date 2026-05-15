@@ -147,6 +147,29 @@ discover_changed_packages() {
     done
 }
 
+package_has_binary_release_enabled() {
+    local package=$1
+
+    (
+        # shellcheck disable=SC1090
+        source "${package}/package.conf"
+        [ "${BINARY_RELEASE_ENABLED:-false}" = true ]
+    )
+}
+
+filter_binary_release_packages() {
+    local filtered=()
+    local package
+
+    for package in "${PACKAGES[@]}"; do
+        if package_has_binary_release_enabled "$package"; then
+            filtered+=("$package")
+        fi
+    done
+
+    PACKAGES=("${filtered[@]}")
+}
+
 render_discovery_json() {
     local json='['
     local separator=''
@@ -221,15 +244,80 @@ run_discovery() {
     log "Discovered $count packages: $json_array"
 }
 
+run_binary_release_discovery() {
+    local package_filter=""
+    local base_ref=""
+    local head_ref=""
+
+    while [ "$#" -gt 0 ]; do
+        case $1 in
+            --package)
+                shift || die "Missing value for --package"
+                package_filter=$1
+                ;;
+            --base-ref)
+                shift || die "Missing value for --base-ref"
+                base_ref=$1
+                ;;
+            --head-ref)
+                shift || die "Missing value for --head-ref"
+                head_ref=$1
+                ;;
+            *)
+                die "Unknown discover_binary_releases parameter: $1"
+                ;;
+        esac
+        shift || true
+    done
+
+    if [ -n "$base_ref" ] || [ -n "$head_ref" ]; then
+        [ -n "$base_ref" ] && [ -n "$head_ref" ] || die "--base-ref and --head-ref must be provided together"
+    fi
+
+    if [ -n "$package_filter" ]; then
+        PACKAGES=("$(canonical_package_dir "$package_filter")")
+    elif [ -n "$base_ref" ] && [ -n "$head_ref" ]; then
+        discover_changed_packages "$base_ref" "$head_ref"
+    else
+        collect_all_packages
+    fi
+
+    filter_binary_release_packages
+
+    if [ -z "$GITHUB_OUTPUT" ]; then
+        if [ "${#PACKAGES[@]}" -gt 0 ]; then
+            printf '%s\n' "${PACKAGES[@]}"
+        fi
+        return 0
+    fi
+
+    local count=${#PACKAGES[@]}
+    local json_array
+    json_array=$(render_discovery_json)
+
+    echo "matrix={\"package\": ${json_array}}" >> "$GITHUB_OUTPUT"
+    if [ "$count" -gt 0 ]; then
+        echo "has_packages=true" >> "$GITHUB_OUTPUT"
+    else
+        echo "has_packages=false" >> "$GITHUB_OUTPUT"
+    fi
+
+    log "Discovered $count binary release packages: $json_array"
+}
+
 show_help() {
     cat <<EOF
-Usage: $0 {discover [--package <pkgname-or-packages/pkgname> | --base-ref <ref> --head-ref <ref>]|install|setup_user|preflight <pkgname-or-packages/pkgname>|run_update <pkgname-or-packages/pkgname> [args]|run_test <pkgname-or-packages/pkgname>}
+Usage: $0 {discover|discover_binary_releases|install|setup_user|preflight <pkg>|build_binary_release <pkg> [args]|run_update <pkg> [args]|run_test <pkg>}
 EOF
 }
 
 case "$COMMAND" in
     discover)
         run_discovery "$@"
+        ;;
+
+    discover_binary_releases)
+        run_binary_release_discovery "$@"
         ;;
 
     install)
@@ -290,6 +378,15 @@ case "$COMMAND" in
             log "Running as current user ($(whoami))..."
             bash scripts/auto_update.sh "$PKG_DIR" "${ARGS[@]}"
         fi
+        ;;
+
+    build_binary_release)
+        PKG_DIR=$1
+        shift || true
+        PKG_DIR=$(canonical_package_dir "$PKG_DIR")
+
+        chmod +x scripts/build_binary_release.sh
+        bash scripts/build_binary_release.sh "$PKG_DIR" "$@"
         ;;
 
     run_test)

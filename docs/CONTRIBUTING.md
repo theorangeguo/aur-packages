@@ -67,6 +67,41 @@ Useful optional fields:
 - `WRAPPER_SOURCE_PATH`, `WRAPPER_INSTALL_PATH`, `WRAPPER_MODE` — install an additional wrapper script alongside the main binary.
 - `TEST_COMMANDS` — commands executed after install during smoke checks.
 
+For packages whose binary assets are built by this repository first, keep the AUR side as `PACKAGE_TEMPLATE=binary-archive` and add a declarative binary-release block instead of a package-specific workflow:
+
+```bash
+BINARY_RELEASE_ENABLED=true
+BINARY_RELEASE_TEMPLATE=source-cargo
+BINARY_RELEASE_REV=1
+BINARY_RELEASE_VERSION_TEMPLATE='${upstream_version}.r${release_rev}'
+BINARY_RELEASE_TAG_PREFIX="${PKGNAME}-v"
+BINARY_RELEASE_REPO=orange-guo/aur-packages
+BINARY_RELEASE_ARCHES=('x86_64')
+BINARY_RELEASE_ASSET_X86_64='${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'
+
+BINARY_RELEASE_UPSTREAM_TYPE=github-source-archive
+BINARY_RELEASE_UPSTREAM_REPO_USER=upstream-user
+BINARY_RELEASE_UPSTREAM_REPO_NAME=upstream-project
+BINARY_RELEASE_UPSTREAM_TAG_PREFIX=v
+BINARY_RELEASE_SOURCE_DIR='upstream-project-${upstream_version}'
+BINARY_RELEASE_PATCH_FILES=('files/0001-example.patch')
+BINARY_RELEASE_MAKEDEPENDS=('ca-certificates' 'curl' 'git' 'patch' 'rust' 'tar')
+BINARY_RELEASE_CARGO_BUILD_ARGS=('--release' '--frozen')
+BINARY_RELEASE_RUN_CHECK=false
+BINARY_RELEASE_ARCHIVE_FILES=(
+    'target/release/my-binary:my-binary:755'
+    'LICENSE:LICENSE:644'
+)
+
+UPSTREAM_REPO_USER=orange-guo
+UPSTREAM_REPO_NAME=aur-packages
+UPSTREAM_RELEASE_TAG_PREFIX="$BINARY_RELEASE_TAG_PREFIX"
+UPSTREAM_TAG_PREFIX="$BINARY_RELEASE_TAG_PREFIX"
+UPSTREAM_ASSET_NAME_X86_64="$BINARY_RELEASE_ASSET_X86_64"
+```
+
+`BINARY_RELEASE_REV` is part of `pkgver`. Bump it when the patchset or build recipe changes without an upstream version change. The generic `.github/workflows/build-binary-releases.yml` workflow discovers packages with `BINARY_RELEASE_ENABLED=true`, builds the configured assets, publishes them to GitHub Releases, and then the normal AUR package pipeline consumes those release assets.
+
 ### 3. Add Overrides Only If Needed
 
 #### `hooks.sh`
@@ -99,7 +134,6 @@ Current built-in packaging templates:
 - `deb-repack` — `.deb` repackaging
 - `appimage-desktop` — AppImage extraction plus desktop/icon setup
 - `source-meson` — source builds using Meson/Ninja with optional patches
-- `source-cargo` — source builds using Cargo with optional patches
 
 Typical extra fields for `source-meson`:
 
@@ -113,21 +147,6 @@ RUN_CHECK=false
 CHECK_ARGS=()
 ```
 
-Typical extra fields for `source-cargo`:
-
-```bash
-SOURCE_RENAME='${pkgname}-${pkgver}.tar.gz'
-SOURCE_DIR='upstream-${pkgver}'
-PATCH_FILES=('files/0001-example.patch')
-BINARY_NAME=my-binary
-BINARY_SOURCE_PATH=target/release/my-binary
-INSTALL_BIN_PATH=/usr/bin/my-binary
-CARGO_FETCH_ARGS=()
-CARGO_BUILD_ARGS=('--release' '--frozen')
-CARGO_CHECK_ARGS=('--frozen')
-RUN_CHECK=false
-```
-
 Other template-specific fields:
 
 - `deb-repack`: `DEB_RELOCATE_USR_LOCAL=true`
@@ -137,6 +156,8 @@ Other template-specific fields:
 Current built-in upstream resolvers:
 - `github-release-assets`
 - `custom-hook`
+
+`github-release-assets` can consume either the latest release or a release family. Set `UPSTREAM_RELEASE_TAG_PREFIX` plus `UPSTREAM_ASSET_NAME_<ARCH>` to select the newest release whose tag starts with the prefix and contains the exact expected asset names.
 
 Template-driven install tests automatically validate common installed outputs such as:
 - `INSTALL_BIN_PATH`
@@ -152,11 +173,15 @@ Use `TEST_PATHS`, `TEST_EXECUTABLES`, and `TEST_COMMANDS` only when a package ne
 Before committing, test the package locally from the repository root.
 
 ```bash
+./scripts/ci_manager.sh build_binary_release my-package-name --dry-run
+./scripts/ci_manager.sh build_binary_release my-package-name --skip-publish
 ./scripts/ci_manager.sh run_update my-package-name --dry-run
 ./scripts/ci_manager.sh run_test my-package-name
 ```
 
 The manager accepts either a bare package name like `my-package-name` or an explicit path like `packages/my-package-name`.
+
+Run `build_binary_release` before `run_update`/`run_test` for self-built `-bin` packages when the expected GitHub release asset does not exist yet.
 
 This is the smallest meaningful test in this repo. It resolves upstream state, renders a temporary `PKGBUILD`, refreshes checksums, generates `.SRCINFO`, and verifies the build.
 
