@@ -1,0 +1,99 @@
+name: Build binary releases
+
+on:
+  schedule:
+    - cron: '30 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Single binary-release package to build (pkgname or packages/<pkgname>, optional)'
+        required: false
+        type: string
+      upstream_version:
+        description: 'Upstream version to build, with or without leading tag prefix (optional)'
+        required: false
+        type: string
+      force:
+        description: 'Rebuild and replace assets even if the expected release assets already exist'
+        required: false
+        type: boolean
+        default: false
+  push:
+    paths:
+      - '.github/workflows/build-binary-releases.yml'
+      - 'scripts/**'
+      - 'packages/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-binary-releases-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      has_packages: ${{ steps.set-matrix.outputs.has_packages }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: set-matrix
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_PACKAGE: ${{ github.event.inputs.package || '' }}
+          MANUAL_UPSTREAM_VERSION: ${{ github.event.inputs.upstream_version || '' }}
+          PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci_manager.sh
+
+          if [ -n "$MANUAL_UPSTREAM_VERSION" ] && [ -z "$MANUAL_PACKAGE" ]; then
+            echo "workflow_dispatch upstream_version requires package" >&2
+            exit 1
+          fi
+
+          ARGS=()
+          if [ -n "$MANUAL_PACKAGE" ]; then
+            ARGS+=(--package "$MANUAL_PACKAGE")
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$PUSH_BEFORE_SHA" ] && [ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            ARGS+=(--base-ref "$PUSH_BEFORE_SHA" --head-ref "$PUSH_SHA")
+          fi
+
+          ./scripts/ci_manager.sh discover_binary_releases "${ARGS[@]}"
+
+  build:
+    needs: discovery
+    runs-on: ubuntu-latest
+    if: github.repository == 'orange-guo/aur-packages' && needs.discovery.outputs.has_packages == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discovery.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build and publish binary release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          MANUAL_UPSTREAM_VERSION: ${{ github.event.inputs.upstream_version || '' }}
+          FORCE_REBUILD: ${{ github.event.inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci_manager.sh scripts/build_binary_release.sh
+
+          ARGS=()
+          if [ -n "$MANUAL_UPSTREAM_VERSION" ]; then
+            ARGS+=(--upstream-version "$MANUAL_UPSTREAM_VERSION")
+          fi
+          if [ "$FORCE_REBUILD" = "true" ]; then
+            ARGS+=(--force)
+          fi
+
+          ./scripts/ci_manager.sh build_binary_release "${{ matrix.package }}" "${ARGS[@]}"

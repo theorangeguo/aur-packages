@@ -4,6 +4,93 @@ GITHUB_API_FAILURE_REASON=""
 GITHUB_RELEASE_TAG=""
 GITHUB_RELEASE_WEB_ASSET_URLS=()
 
+github_fetch_releases_json() {
+    local page=1
+    local response_file
+    local combined_file
+    local next_combined_file
+    local count
+
+    combined_file=$(mktemp)
+    printf '[]' > "$combined_file"
+
+    while true; do
+        response_file=$(mktemp)
+        if ! github_api_request_to_file "https://api.github.com/repos/${UPSTREAM_REPO_USER}/${UPSTREAM_REPO_NAME}/releases?per_page=100&page=${page}" "$response_file"; then
+            rm -f "$response_file" "$combined_file"
+            die "GitHub API unavailable (${GITHUB_API_FAILURE_REASON:-unknown reason}); cannot resolve release family ${UPSTREAM_RELEASE_TAG_PREFIX}."
+        fi
+
+        count=$(jq 'length' "$response_file")
+        if [ "$count" -eq 0 ]; then
+            rm -f "$response_file"
+            break
+        fi
+
+        next_combined_file=$(mktemp)
+        jq -s '.[0] + .[1]' "$combined_file" "$response_file" > "$next_combined_file"
+        mv "$next_combined_file" "$combined_file"
+        rm -f "$response_file"
+        page=$((page + 1))
+    done
+
+    cat "$combined_file"
+    rm -f "$combined_file"
+}
+
+github_exact_asset_name_for_arch() {
+    local arch=$1
+    local suffix
+    suffix=$(arch_var_suffix "$arch")
+    local exact_var="UPSTREAM_ASSET_NAME_${suffix}"
+    local template=${!exact_var}
+
+    [ -n "$template" ] || return 0
+
+    local pkgname=$PKGNAME
+    local pkgver=$RESOLVED_VERSION
+    local carch=$arch
+    expand_template "$template"
+}
+
+github_asset_selector_for_arch() {
+    local arch=$1
+    local suffix
+    suffix=$(arch_var_suffix "$arch")
+    local selector_var="ASSET_SELECTOR_${suffix}"
+    printf '%s' "${!selector_var}"
+}
+
+github_asset_match_description_for_arch() {
+    local arch=$1
+    local exact_name
+    local selector
+
+    exact_name=$(github_exact_asset_name_for_arch "$arch")
+    if [ -n "$exact_name" ]; then
+        printf 'exact asset name: %s' "$exact_name"
+        return 0
+    fi
+
+    selector=$(github_asset_selector_for_arch "$arch")
+    if [ -n "$selector" ]; then
+        printf 'regex: %s' "$selector"
+        return 0
+    fi
+
+    printf '<none>'
+}
+
+github_arch_has_asset_matcher() {
+    local arch=$1
+    local exact_name
+    local selector
+
+    exact_name=$(github_exact_asset_name_for_arch "$arch")
+    selector=$(github_asset_selector_for_arch "$arch")
+    [ -n "$exact_name" ] || [ -n "$selector" ]
+}
+
 github_api_request_to_file() {
     local api_url=$1
     local output_file=$2
@@ -124,6 +211,11 @@ resolve_github_release_assets() {
     require_cmd curl
     require_cmd jq
 
+    if [ -n "$UPSTREAM_RELEASE_TAG_PREFIX" ]; then
+        resolve_github_release_family_assets
+        return 0
+    fi
+
     local api_url
     if [ "$UPSTREAM_ALLOW_PRERELEASE" = "true" ]; then
         api_url="https://api.github.com/repos/${UPSTREAM_REPO_USER}/${UPSTREAM_REPO_NAME}/releases"
@@ -163,6 +255,62 @@ resolve_github_release_assets() {
     resolve_github_asset_for_arch aarch64 "$release_json"
 }
 
+resolve_github_release_family_assets() {
+    local releases_json
+    local release_tags=()
+    local latest_tag
+    local release_json
+    local failed_tags=()
+
+    releases_json=$(github_fetch_releases_json)
+    mapfile -t release_tags < <(
+        printf '%s' "$releases_json" \
+            | jq -r --arg prefix "$UPSTREAM_RELEASE_TAG_PREFIX" '.[] | select((.tag_name // "") | startswith($prefix)) | .tag_name' \
+            | sort -rV
+    )
+
+    [ "${#release_tags[@]}" -gt 0 ] || die "No GitHub releases found with tag prefix: ${UPSTREAM_RELEASE_TAG_PREFIX}"
+
+    for latest_tag in "${release_tags[@]}"; do
+        release_json=$(printf '%s' "$releases_json" | jq -c --arg tag "$latest_tag" 'first(.[] | select((.tag_name // "") == $tag))')
+        [ -n "$release_json" ] && [ "$release_json" != null ] || continue
+
+        GITHUB_RELEASE_TAG=$latest_tag
+        RESOLVED_VERSION=${latest_tag#"$UPSTREAM_RELEASE_TAG_PREFIX"}
+        [ -n "$RESOLVED_VERSION" ] || continue
+
+        if try_resolve_github_assets_for_configured_arches "$release_json"; then
+            return 0
+        fi
+
+        failed_tags+=("$latest_tag")
+    done
+
+    if [ "${#failed_tags[@]}" -gt 0 ]; then
+        log_error "Checked release tags without finding all required assets:"
+        printf '!! ERROR:   %s\n' "${failed_tags[@]}" >&2
+    fi
+
+    if [ "${BINARY_RELEASE_ENABLED:-false}" = true ]; then
+        log_error "This package consumes a self-built binary release asset. Bootstrap or update it with:"
+        log_error "  ./scripts/ci_manager.sh build_binary_release ${PKGNAME}"
+    fi
+
+    die "No GitHub release with required assets found for tag prefix: ${UPSTREAM_RELEASE_TAG_PREFIX}"
+}
+
+try_resolve_github_assets_for_configured_arches() {
+    local release_json=$1
+    local arch
+
+    for arch in "${ARCHES[@]}"; do
+        github_arch_has_asset_matcher "$arch" || die "Missing UPSTREAM_ASSET_NAME or ASSET_SELECTOR for architecture: ${arch}"
+        try_resolve_github_asset_for_arch "$arch" "$release_json" || return 1
+    done
+
+    return 0
+}
+
 resolve_github_release_assets_via_web() {
     local latest_url
     latest_url=$(github_fetch_latest_release_url "https://github.com/${UPSTREAM_REPO_USER}/${UPSTREAM_REPO_NAME}/releases/latest")
@@ -196,26 +344,50 @@ resolve_github_release_assets_via_web() {
 resolve_github_asset_for_arch() {
     local arch=$1
     local release_json=$2
+    local match_description
+
+    github_arch_has_asset_matcher "$arch" || return 0
+
+    if try_resolve_github_asset_for_arch "$arch" "$release_json"; then
+        return 0
+    fi
+
+    match_description=$(github_asset_match_description_for_arch "$arch")
+
+    local asset_names=()
+    mapfile -t asset_names < <(printf '%s' "$release_json" | jq -r '.assets[].name // empty')
+    log_github_asset_match_failure "$arch" "$match_description" "$GITHUB_RELEASE_TAG" "${asset_names[@]}"
+}
+
+try_resolve_github_asset_for_arch() {
+    local arch=$1
+    local release_json=$2
 
     local suffix
     suffix=$(arch_var_suffix "$arch")
-    local selector_var="ASSET_SELECTOR_${suffix}"
-    local selector=${!selector_var}
+    local exact_name
+    local selector
 
-    [ -n "$selector" ] || return 0
+    exact_name=$(github_exact_asset_name_for_arch "$arch")
+    selector=$(github_asset_selector_for_arch "$arch")
+    [ -n "$exact_name" ] || [ -n "$selector" ] || return 0
 
     local download_url
-    download_url=$(printf '%s' "$release_json" | jq -r --arg regex "$selector" '
-        .assets[]
-        | select((.name // "") | test($regex))
-        | .browser_download_url
-        ' | head -n 1)
-
-    if [ -z "$download_url" ]; then
-        local asset_names=()
-        mapfile -t asset_names < <(printf '%s' "$release_json" | jq -r '.assets[].name // empty')
-        log_github_asset_match_failure "$arch" "$selector" "$GITHUB_RELEASE_TAG" "${asset_names[@]}"
+    if [ -n "$exact_name" ]; then
+        download_url=$(printf '%s' "$release_json" | jq -r --arg name "$exact_name" '
+            .assets[]
+            | select((.name // "") == $name)
+            | .browser_download_url
+            ' | head -n 1)
+    else
+        download_url=$(printf '%s' "$release_json" | jq -r --arg regex "$selector" '
+            .assets[]
+            | select((.name // "") | test($regex))
+            | .browser_download_url
+            ' | head -n 1)
     fi
+
+    [ -n "$download_url" ] || return 1
 
     local resolved_var="RESOLVED_SOURCE_URL_${suffix}"
     printf -v "$resolved_var" '%s' "$download_url"
@@ -226,15 +398,18 @@ resolve_github_web_asset_for_arch() {
 
     local suffix
     suffix=$(arch_var_suffix "$arch")
-    local selector_var="ASSET_SELECTOR_${suffix}"
-    local selector=${!selector_var}
+    local exact_name
+    local selector
+    local match_description
 
-    [ -n "$selector" ] || return 0
+    exact_name=$(github_exact_asset_name_for_arch "$arch")
+    selector=$(github_asset_selector_for_arch "$arch")
+    [ -n "$exact_name" ] || [ -n "$selector" ] || return 0
 
     local asset_url
     for asset_url in "${GITHUB_RELEASE_WEB_ASSET_URLS[@]}"; do
         local asset_name=${asset_url##*/}
-        if [[ "$asset_name" =~ $selector ]]; then
+        if { [ -n "$exact_name" ] && [ "$asset_name" = "$exact_name" ]; } || { [ -z "$exact_name" ] && [[ "$asset_name" =~ $selector ]]; }; then
             local resolved_var="RESOLVED_SOURCE_URL_${suffix}"
             printf -v "$resolved_var" '%s' "$asset_url"
             return 0
@@ -247,5 +422,6 @@ resolve_github_web_asset_for_arch() {
         asset_names+=("${available_asset_url##*/}")
     done
 
-    log_github_asset_match_failure "$arch" "$selector" "$GITHUB_RELEASE_TAG" "${asset_names[@]}"
+    match_description=$(github_asset_match_description_for_arch "$arch")
+    log_github_asset_match_failure "$arch" "$match_description" "$GITHUB_RELEASE_TAG" "${asset_names[@]}"
 }

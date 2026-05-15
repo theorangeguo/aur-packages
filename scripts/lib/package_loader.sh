@@ -31,6 +31,13 @@ load_package_config() {
     ICON_CANDIDATES=("${ICON_CANDIDATES[@]}")
     MESON_OPTIONS=("${MESON_OPTIONS[@]}")
     CHECK_ARGS=("${CHECK_ARGS[@]}")
+    BINARY_RELEASE_ARCHES=("${BINARY_RELEASE_ARCHES[@]}")
+    BINARY_RELEASE_MAKEDEPENDS=("${BINARY_RELEASE_MAKEDEPENDS[@]}")
+    BINARY_RELEASE_PATCH_FILES=("${BINARY_RELEASE_PATCH_FILES[@]}")
+    BINARY_RELEASE_CARGO_FETCH_ARGS=("${BINARY_RELEASE_CARGO_FETCH_ARGS[@]}")
+    BINARY_RELEASE_CARGO_BUILD_ARGS=("${BINARY_RELEASE_CARGO_BUILD_ARGS[@]}")
+    BINARY_RELEASE_CARGO_CHECK_ARGS=("${BINARY_RELEASE_CARGO_CHECK_ARGS[@]}")
+    BINARY_RELEASE_ARCHIVE_FILES=("${BINARY_RELEASE_ARCHIVE_FILES[@]}")
     PERSIST_STATE_KEYS=("${PERSIST_STATE_KEYS[@]}")
     TEST_PATHS=("${TEST_PATHS[@]}")
     TEST_EXECUTABLES=("${TEST_EXECUTABLES[@]}")
@@ -61,12 +68,26 @@ load_package_config() {
     WRAPPER_INSTALL_PATH=${WRAPPER_INSTALL_PATH:-}
     WRAPPER_MODE=${WRAPPER_MODE:-755}
     UPSTREAM_TAG_PREFIX=${UPSTREAM_TAG_PREFIX:-}
+    UPSTREAM_RELEASE_TAG_PREFIX=${UPSTREAM_RELEASE_TAG_PREFIX:-}
     UPSTREAM_ALLOW_PRERELEASE=${UPSTREAM_ALLOW_PRERELEASE:-false}
     DEB_RELOCATE_USR_LOCAL=${DEB_RELOCATE_USR_LOCAL:-false}
     APPIMAGE_APPDIR_NAME=${APPIMAGE_APPDIR_NAME:-squashfs-root}
     SOURCE_DIR=${SOURCE_DIR:-$PKGNAME}
     BUILD_DIR=${BUILD_DIR:-build}
     RUN_CHECK=${RUN_CHECK:-false}
+    BINARY_RELEASE_ENABLED=${BINARY_RELEASE_ENABLED:-false}
+    BINARY_RELEASE_TEMPLATE=${BINARY_RELEASE_TEMPLATE:-}
+    BINARY_RELEASE_REV=${BINARY_RELEASE_REV:-1}
+    BINARY_RELEASE_VERSION_TEMPLATE=${BINARY_RELEASE_VERSION_TEMPLATE:-'${upstream_version}.r${release_rev}'}
+    BINARY_RELEASE_TAG_PREFIX=${BINARY_RELEASE_TAG_PREFIX:-${PKGNAME}-v}
+    BINARY_RELEASE_UPSTREAM_TYPE=${BINARY_RELEASE_UPSTREAM_TYPE:-}
+    BINARY_RELEASE_UPSTREAM_TAG_PREFIX=${BINARY_RELEASE_UPSTREAM_TAG_PREFIX:-}
+    BINARY_RELEASE_SOURCE_DIR=${BINARY_RELEASE_SOURCE_DIR:-}
+    BINARY_RELEASE_RUN_CHECK=${BINARY_RELEASE_RUN_CHECK:-false}
+
+    if [ "${#BINARY_RELEASE_ARCHES[@]}" -eq 0 ]; then
+        BINARY_RELEASE_ARCHES=("${ARCHES[@]}")
+    fi
 
     case "$INSTALL_MODE" in
         none|generated|static) ;;
@@ -86,6 +107,34 @@ load_package_config() {
     if [ "$UPSTREAM_TYPE" = "github-release-assets" ]; then
         [ -n "$UPSTREAM_REPO_USER" ] || die "UPSTREAM_REPO_USER is required for github-release-assets"
         [ -n "$UPSTREAM_REPO_NAME" ] || die "UPSTREAM_REPO_NAME is required for github-release-assets"
+    fi
+
+    if [ "$BINARY_RELEASE_ENABLED" = true ]; then
+        [ -n "$BINARY_RELEASE_TEMPLATE" ] || die "BINARY_RELEASE_TEMPLATE is required when BINARY_RELEASE_ENABLED=true"
+        [ -n "$BINARY_RELEASE_UPSTREAM_TYPE" ] || die "BINARY_RELEASE_UPSTREAM_TYPE is required when BINARY_RELEASE_ENABLED=true"
+        [ "${#BINARY_RELEASE_ARCHES[@]}" -gt 0 ] || die "BINARY_RELEASE_ARCHES must not be empty when BINARY_RELEASE_ENABLED=true"
+        [ "${#BINARY_RELEASE_ARCHIVE_FILES[@]}" -gt 0 ] || die "BINARY_RELEASE_ARCHIVE_FILES must not be empty when BINARY_RELEASE_ENABLED=true"
+
+        case "$BINARY_RELEASE_TEMPLATE" in
+            source-cargo) ;;
+            *) die "Unsupported BINARY_RELEASE_TEMPLATE: $BINARY_RELEASE_TEMPLATE" ;;
+        esac
+
+        case "$BINARY_RELEASE_UPSTREAM_TYPE" in
+            github-source-archive)
+                [ -n "$BINARY_RELEASE_UPSTREAM_REPO_USER" ] || die "BINARY_RELEASE_UPSTREAM_REPO_USER is required for github-source-archive"
+                [ -n "$BINARY_RELEASE_UPSTREAM_REPO_NAME" ] || die "BINARY_RELEASE_UPSTREAM_REPO_NAME is required for github-source-archive"
+                ;;
+            *) die "Unsupported BINARY_RELEASE_UPSTREAM_TYPE: $BINARY_RELEASE_UPSTREAM_TYPE" ;;
+        esac
+
+        local binary_release_arch
+        for binary_release_arch in "${BINARY_RELEASE_ARCHES[@]}"; do
+            local binary_release_suffix
+            binary_release_suffix=$(arch_var_suffix "$binary_release_arch")
+            local binary_release_asset_var="BINARY_RELEASE_ASSET_${binary_release_suffix}"
+            [ -n "${!binary_release_asset_var}" ] || die "${binary_release_asset_var} is required when BINARY_RELEASE_ENABLED=true"
+        done
     fi
 
     if [ "$PACKAGE_TEMPLATE" = "binary-archive" ] || [ "$PACKAGE_TEMPLATE" = "appimage-desktop" ]; then

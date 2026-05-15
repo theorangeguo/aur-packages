@@ -38,14 +38,19 @@ flowchart TD
 
 The critical point is that **publish is gated by the same install smoke-test path used by package validation**.
 
+Some `-bin` packages use this repository as the binary-release producer before the normal AUR pipeline consumes the asset. Those packages declare `BINARY_RELEASE_ENABLED=true` in `package.conf`; the generic binary-release workflow builds the upstream source in an Arch container, applies package-local patches, uploads a GitHub Release asset, and then the regular `binary-archive` package template downloads that asset during AUR validation/publish.
+
 ## 3. Main Entry Points
 
 | Entry point | Purpose |
 |---|---|
 | `scripts/ci_manager.sh discover` | Find all package directories that contain `package.conf` |
+| `scripts/ci_manager.sh discover_binary_releases` | Find packages with `BINARY_RELEASE_ENABLED=true` |
+| `scripts/ci_manager.sh build_binary_release <pkg>` | Build and publish self-built binary release assets for one package |
 | `scripts/ci_manager.sh preflight <pkg>` | Resolve upstream metadata and asset selectors without building or publishing |
 | `scripts/ci_manager.sh run_test <pkg>` | Build, install, and smoke-test one package (accepts bare package names or `packages/<pkgname>` paths) |
 | `scripts/ci_manager.sh run_update <pkg> ...` | Resolve upstream state, render packaging outputs, optionally install-test, and publish to AUR (accepts bare package names or `packages/<pkgname>` paths) |
+| `.github/workflows/build-binary-releases.yml` | Scheduled/manual producer workflow for repo-built binary release assets |
 | `.github/workflows/package-test.yml` | Pull request / push validation workflow |
 | `.github/workflows/aur-publish.yml` | Scheduled/manual publish workflow |
 
@@ -63,6 +68,8 @@ It is responsible for:
 6. running template-driven smoke checks
 
 Both validation and publish now call that same pipeline.
+
+The binary-release producer is separate from the AUR package pipeline. Its shared logic lives in `scripts/build_binary_release.sh`, `scripts/lib/binary_release.sh`, and `scripts/lib/artifact_source_cargo.sh`. This keeps package-specific build recipes declarative in `package.conf` rather than in package-specific workflow YAML.
 
 For validation, discovery is change-aware:
 
@@ -177,6 +184,12 @@ The checks confirm installation shape, not full runtime behavior.
 ## 9. Practical Commands
 
 ```bash
+# Build/publish repo-produced binary release assets
+./scripts/ci_manager.sh build_binary_release <package_dir>
+
+# Dry-run the binary-release producer
+./scripts/ci_manager.sh build_binary_release <package_dir> --dry-run
+
 # Local package validation
 ./scripts/ci_manager.sh run_test <package_dir>
 
