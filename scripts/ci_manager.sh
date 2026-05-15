@@ -307,7 +307,7 @@ run_binary_release_discovery() {
 
 show_help() {
     cat <<EOF
-Usage: $0 {discover|discover_binary_releases|install|setup_user|preflight <pkg>|build_binary_release <pkg> [args]|run_update <pkg> [args]|run_test <pkg>}
+Usage: $0 {discover|discover_binary_releases|check_framework_boundaries|install|setup_user|preflight <pkg>|build_binary_release <pkg> [args]|run_update <pkg> [args]|run_test <pkg>}
 EOF
 }
 
@@ -318,6 +318,11 @@ case "$COMMAND" in
 
     discover_binary_releases)
         run_binary_release_discovery "$@"
+        ;;
+
+    check_framework_boundaries)
+        chmod +x scripts/check_framework_boundaries.sh
+        ./scripts/check_framework_boundaries.sh
         ;;
 
     install)

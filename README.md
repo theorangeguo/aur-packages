@@ -28,7 +28,7 @@ The system uses a centralized manager script [`scripts/ci_manager.sh`](scripts/c
 
 The package validation workflow and the publish workflow now share the same install-test path, so scheduled AUR publishes are gated on the same package-level smoke checks used in pull requests.
 
-For a deeper explanation of the moving parts, see [docs/WORKFLOW.md](docs/WORKFLOW.md).
+For a deeper explanation of the moving parts, see [docs/WORKFLOW.md](docs/WORKFLOW.md). For framework boundaries and package extension rules, see [docs/PACKAGE_FRAMEWORK.md](docs/PACKAGE_FRAMEWORK.md).
 
 The publish workflow runs automatically **every 6 hours**. The validation workflow runs on pull requests, pushes to `main`, and manual dispatches.
 

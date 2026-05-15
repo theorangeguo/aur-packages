@@ -2,7 +2,7 @@
 
 This repository is template-driven. Each package directory declares a package via `package.conf`, with optional `hooks.sh` and `files/` overrides. `PKGBUILD` and `.SRCINFO` are generated only during local runs and CI.
 
-For the end-to-end repository workflow, see [WORKFLOW.md](WORKFLOW.md).
+For the end-to-end repository workflow, see [WORKFLOW.md](WORKFLOW.md). For framework boundaries, extension points, and anti-corruption rules, see [PACKAGE_FRAMEWORK.md](PACKAGE_FRAMEWORK.md).
 
 ## 📋 Standard Process for New Packages
 
