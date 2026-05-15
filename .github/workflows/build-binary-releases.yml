@@ -19,6 +19,8 @@ on:
         type: boolean
         default: false
   push:
+    branches-ignore:
+      - main
     paths:
       - '.github/workflows/build-binary-releases.yml'
       - 'scripts/**'
