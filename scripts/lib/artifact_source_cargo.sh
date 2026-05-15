@@ -43,6 +43,7 @@ fi
 mkdir -p /build /output
 chown -R builder:builder /build /output
 runuser -u builder -- env HOME=/home/builder /bin/bash /builder.sh
+chown -R "\${HOST_UID}:\${HOST_GID}" /output
 EOF
 
     cat > "$builder_script" <<EOF
@@ -110,6 +111,8 @@ EOF
 
     log_info "Building ${PKGNAME} ${pkgver} (${arch}) with ${runtime}"
     "$runtime" run --rm \
+        -e HOST_UID="$(id -u)" \
+        -e HOST_GID="$(id -g)" \
         -v "$REPO_ROOT:/work:ro" \
         -v "$output_dir:/output" \
         -v "$container_script:/container.sh:ro" \
