@@ -34,9 +34,10 @@ retry_with_backoff() {
     while true; do
         if "$@"; then
             return 0
+        else
+            status=$?
         fi
 
-        status=$?
         if [ "$attempt" -ge "$max_attempts" ]; then
             log_error "${description} failed after ${max_attempts} attempts (exit ${status})."
             return "$status"
