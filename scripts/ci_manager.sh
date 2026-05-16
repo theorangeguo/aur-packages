@@ -264,7 +264,7 @@ run_binary_release_discovery() {
                 head_ref=$1
                 ;;
             *)
-                die "Unknown discover_binary_releases parameter: $1"
+                die "Unknown discover-binary-releases parameter: $1"
                 ;;
         esac
         shift || true
@@ -307,7 +307,18 @@ run_binary_release_discovery() {
 
 show_help() {
     cat <<EOF
-Usage: $0 {discover|discover_binary_releases|check_framework_boundaries|install|setup_user|preflight <pkg>|build_binary_release <pkg> [args]|run_update <pkg> [args]|run_test <pkg>}
+Usage: $0 <command> [args]
+
+Commands:
+  discover
+  discover-binary-releases <args>  (alias: discover_binary_releases)
+  check-framework-boundaries       (alias: check_framework_boundaries)
+  install
+  setup-user                       (alias: setup_user)
+  preflight <pkgname-or-path>
+  build-binary-release <pkgname-or-path> [args]  (alias: build_binary_release)
+  run-publish <pkgname-or-path> [args]           (aliases: run_update, run-update, run_publish)
+  run-test <pkgname-or-path>                     (alias: run_test)
 EOF
 }
 
@@ -316,11 +327,11 @@ case "$COMMAND" in
         run_discovery "$@"
         ;;
 
-    discover_binary_releases)
+    discover_binary_releases|discover-binary-releases)
         run_binary_release_discovery "$@"
         ;;
 
-    check_framework_boundaries)
+    check_framework_boundaries|check-framework-boundaries)
         chmod +x scripts/check_framework_boundaries.sh
         ./scripts/check_framework_boundaries.sh
         ;;
@@ -337,8 +348,8 @@ case "$COMMAND" in
         fi
         ;;
 
-    setup_user)
-        require_root setup_user
+    setup_user|setup-user)
+        require_root setup-user
         log "Setting up builder user..."
         if ! id -u builder >/dev/null 2>&1; then
             useradd -m builder
@@ -362,7 +373,7 @@ case "$COMMAND" in
         bash scripts/auto_update.sh "$PKG_DIR" --preflight
         ;;
 
-    run_update)
+    run_update|run-update|run_publish|run-publish)
         PKG_DIR=$1
         shift || true
         ARGS=("$@")
@@ -371,7 +382,7 @@ case "$COMMAND" in
         chmod +x scripts/auto_update.sh
 
         if [ "$(id -u)" -eq 0 ]; then
-            log "Running update pipeline as root..."
+            log "Running publish pipeline as root..."
             CI="${CI:-}" \
             AUR_USERNAME="${AUR_USERNAME:-}" \
             AUR_EMAIL="${AUR_EMAIL:-}" \
@@ -380,12 +391,12 @@ case "$COMMAND" in
             GH_TOKEN="${GH_TOKEN:-}" \
             bash scripts/auto_update.sh "$PKG_DIR" "${ARGS[@]}"
         else
-            log "Running as current user ($(whoami))..."
+            log "Running publish pipeline as current user ($(whoami))..."
             bash scripts/auto_update.sh "$PKG_DIR" "${ARGS[@]}"
         fi
         ;;
 
-    build_binary_release)
+    build_binary_release|build-binary-release)
         PKG_DIR=$1
         shift || true
         PKG_DIR=$(canonical_package_dir "$PKG_DIR")
@@ -394,7 +405,7 @@ case "$COMMAND" in
         bash scripts/build_binary_release.sh "$PKG_DIR" "$@"
         ;;
 
-    run_test)
+    run_test|run-test)
         PKG_DIR=$1
         shift || true
         PKG_DIR=$(canonical_package_dir "$PKG_DIR")
@@ -402,16 +413,16 @@ case "$COMMAND" in
         chmod +x scripts/test_package.sh
 
         if [ "$RUN_TEST_DIRECT" = "true" ] || [ "$CI" = "true" ]; then
-            log "Running install test directly in current Arch environment..."
+            log "Running package validation directly in current Arch environment..."
             bash scripts/test_package.sh "$PKG_DIR"
         else
             RUNTIME=$(detect_container_runtime) || die "docker or podman is required for local package tests"
 
-            log "Running install test in ephemeral ${RUNTIME} container..."
+            log "Running package validation in ephemeral ${RUNTIME} container..."
             ${RUNTIME} run --rm \
                 -v "$PWD:/src:ro" \
                 "$ARCH_BASE_DEVEL_IMAGE" \
-                bash -lc "set -e && mkdir -p /work && cp -a /src/. /work/ && rm -rf /work/.git && cd /work && chmod +x scripts/ci_manager.sh scripts/test_package.sh && ./scripts/ci_manager.sh install && ./scripts/ci_manager.sh setup_user && RUN_TEST_DIRECT=true ./scripts/ci_manager.sh run_test $(printf %q "$PKG_DIR")"
+                bash -lc "set -e && mkdir -p /work && cp -a /src/. /work/ && rm -rf /work/.git && cd /work && chmod +x scripts/ci_manager.sh scripts/test_package.sh && ./scripts/ci_manager.sh install && ./scripts/ci_manager.sh setup-user && RUN_TEST_DIRECT=true ./scripts/ci_manager.sh run-test $(printf %q "$PKG_DIR")"
         fi
         ;;
 

@@ -13,6 +13,7 @@
 - `docs/INTEGRATION.md`
 - `.github/workflows/aur-publish.yml`
 - `.github/workflows/package-test.yml`
+- `.github/workflows/build-binary-releases.yml`
 - `scripts/ci_manager.sh`
 - `scripts/auto_update.sh`
 - `scripts/test_package.sh`
@@ -29,7 +30,7 @@
 ## Repository workflow
 - Main flow: discover packages -> read AUR state -> resolve upstream -> render temporary `PKGBUILD` -> refresh checksums -> generate `.SRCINFO` -> build -> publish to AUR.
 - Validation flow: discover packages -> resolve upstream -> render temporary `PKGBUILD` -> build -> install package in a container -> run smoke checks.
-- Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh preflight <package_dir>`, `scripts/ci_manager.sh run_update <package_dir> ...`, `scripts/ci_manager.sh run_test <package_dir>`, `scripts/auto_update.sh <package_dir> ...`, `scripts/test_package.sh <package_dir>`
+- Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh preflight <pkgname-or-path>`, `scripts/ci_manager.sh run-publish <pkgname-or-path> ...`, `scripts/ci_manager.sh run-test <pkgname-or-path>`, `scripts/ci_manager.sh build-binary-release <pkgname-or-path> ...`, `scripts/auto_update.sh <pkgname-or-path> ...`, `scripts/test_package.sh <pkgname-or-path>`
 - When touching update logic, inspect `scripts/auto_update.sh`, the relevant files under `scripts/lib/`, and any package-local `hooks.sh`.
 
 ## GitHub Actions failure triage
@@ -38,28 +39,28 @@
 - For GitHub release asset matching failures, inspect upstream release asset names and compare them against `ASSET_SELECTOR_*` in the affected package.
 - Prefer tolerant architecture selectors when upstream naming commonly varies, such as accepting both `arm64` and `aarch64` where appropriate.
 - Keep fixes package-scoped unless repeated failures show the shared resolver or CI scripts are at fault.
-- After package config changes, run `./scripts/ci_manager.sh run_update <package_dir> --dry-run` as the minimum verification.
+- After package config changes, run `./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run` as the minimum verification.
 
 ## Build / lint / test / verification commands
 
 ### Environment setup
 ```bash
 sudo ./scripts/ci_manager.sh install
-sudo ./scripts/ci_manager.sh setup_user
+sudo ./scripts/ci_manager.sh setup-user
 ```
 
 ### Preferred verification for one package
 ```bash
-./scripts/ci_manager.sh run_update <package_dir> --dry-run
-./scripts/ci_manager.sh run_test <package_dir>
+./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run
+./scripts/ci_manager.sh run-test <pkgname-or-path>
 ```
 - This is the repo's closest equivalent to a standard test command.
 - It resolves upstream metadata, renders temporary packaging files, refreshes checksums, generates `.SRCINFO`, and verifies one package build.
-- `run_test` is the stronger validation path: it builds the package, installs it, and performs smoke checks against the installed files.
+- `run-test` is the stronger validation path: it builds the package, installs it, and performs smoke checks against the installed files.
 
 ### Lower-level updater
 ```bash
-bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build]
+bash scripts/auto_update.sh <pkgname-or-path> [--dry-run] [--skip-build]
 ```
 - Prefer the manager wrapper unless you specifically need the lower-level script.
 
@@ -70,7 +71,7 @@ bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build]
 ## “Single test” guidance
 - There is no unit-test framework in this repo.
 - The smallest meaningful verification unit is one package directory.
-- When asked to run a single test, prefer `./scripts/ci_manager.sh run_test <package_dir>` for install verification, or `./scripts/ci_manager.sh run_update <package_dir> --dry-run` for publish-path verification.
+- When asked to run a single test, prefer `./scripts/ci_manager.sh run-test <pkgname-or-path>` for package validation, or `./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run` for publish-path verification.
 - Use `--skip-build` only for metadata-only debugging when build verification is intentionally unnecessary.
 
 ## Code style guidelines
@@ -102,6 +103,8 @@ bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build]
 - For GitHub-backed packages, use `UPSTREAM_REPO_USER`, `UPSTREAM_REPO_NAME`, `UPSTREAM_TAG_PREFIX`, and `ASSET_SELECTOR_*` fields.
 - If install smoke checks need package-specific assertions, use `TEST_PATHS` and `TEST_EXECUTABLES`.
 - Prefer package-local static files under `files/` over embedding large blobs in scripts.
+- Do not repeat binary packaging in `PKGDESC`; `-bin` in `PKGNAME` is enough.
+- Architecture-specific `SOURCE_RENAME_*` values should include the architecture in the rendered filename.
 
 ### Template / hook boundaries
 - Keep ordinary packages template-only.
@@ -113,7 +116,7 @@ bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build]
 ### Generated packaging files
 - Do not hand-maintain `PKGBUILD` in package directories.
 - Do not commit generated `.SRCINFO`.
-- If you need to debug generated packaging files, inspect the temporary workspace created by `run_update` rather than creating permanent repo files.
+- If you need to debug generated packaging files, inspect the temporary workspace created by `run-publish` rather than creating permanent repo files.
 
 ### `.install` files and systemd services
 - Prefer `INSTALL_MODE=generated` for ordinary service packages.
@@ -123,7 +126,9 @@ bash scripts/auto_update.sh <package_dir> [--dry-run] [--skip-build]
 - If service behavior changes, update the related generated/static install guidance too.
 
 ### Naming, types, and data shapes
-- Package directories should be kebab-case and match `PKGNAME`.
+- Package directories should be kebab-case and match `PKGNAME`; versioned library package names may include dots when that matches Arch convention.
+- Prefer kebab-case `ci_manager.sh` commands in docs and workflows; snake_case command names are compatibility aliases only.
+- Use consistent user-facing terms: package validation, smoke checks, publish path, and binary-release asset.
 - Common dynamic state variables use `RESOLVED_*` and `STATE_*` prefixes.
 - This repo is Bash-first; there is no typed-language standard config.
 - Prefer simple shell data shapes: strings, arrays, and boolean flags via `true` / `false`.

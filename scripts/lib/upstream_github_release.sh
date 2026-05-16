@@ -293,7 +293,7 @@ resolve_github_release_family_assets() {
 
     if [ "${BINARY_RELEASE_ENABLED:-false}" = true ]; then
         log_error "This package consumes a self-built binary release asset. Bootstrap or update it with:"
-        log_error "  ./scripts/ci_manager.sh build_binary_release ${PKGNAME}"
+        log_error "  ./scripts/ci_manager.sh build-binary-release ${PKGNAME}"
     fi
 
     die "No GitHub release with required assets found for tag prefix: ${UPSTREAM_RELEASE_TAG_PREFIX}"

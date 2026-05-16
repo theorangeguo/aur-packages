@@ -24,6 +24,19 @@ packages/<pkgname>/
 
 Everything else is shared framework code.
 
+## Naming and terminology rules
+
+- Package directories must match `PKGNAME` exactly.
+- Prefer kebab-case package names. Versioned library packages may include a dot when that matches Arch naming conventions, such as `wlroots0.20-vmwgfx`.
+- Do not repeat binary packaging in `PKGDESC`; `-bin` in `PKGNAME` is enough unless the upstream product name itself contains that wording.
+- Architecture-specific source rename fields should include the architecture in the rendered filename, for example `SOURCE_RENAME_X86_64='${pkgname}-${pkgver}-x86_64.tar.gz'`.
+- Prefer these user-facing terms:
+  - **package validation** for build/install/smoke-check verification
+  - **smoke checks** for installed-file and command assertions
+  - **publish path** for the AUR staging/commit/push flow
+  - **binary-release asset** for repo-built GitHub Release assets consumed by `-bin` packages
+- Prefer kebab-case `scripts/ci_manager.sh` command names in docs and workflows. Snake_case names remain compatibility aliases.
+
 Generated AUR outputs must not be committed under `packages/`:
 
 - `PKGBUILD`
@@ -141,7 +154,7 @@ These are framework limitations, not package-specific exceptions:
 Run it locally before opening PRs that touch automation:
 
 ```bash
-./scripts/check_framework_boundaries.sh
+./scripts/ci_manager.sh check-framework-boundaries
 ```
 
 The package validation workflow runs the same guard.

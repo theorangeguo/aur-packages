@@ -13,7 +13,7 @@ source "${SCRIPT_DIR}/lib/upstream_github_release.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/lib/binary_release.sh"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/lib/artifact_source_cargo.sh"
+source "${SCRIPT_DIR}/lib/binary_release_source_cargo.sh"
 
 ARCH_BASE_DEVEL_IMAGE=${ARCH_BASE_DEVEL_IMAGE:-archlinux:base-devel@sha256:01bd0ee1c23c3dec1dcb0fce558150a222ee2ef0a3776404de33d0714bcefbb0}
 PKG_DIR=""
@@ -25,7 +25,7 @@ TMP_ROOT=""
 
 show_help() {
     cat <<EOF
-Usage: ./scripts/build_binary_release.sh <package> [options]
+Usage: scripts/build_binary_release.sh <pkgname-or-path> [options]
 
 Options:
   --upstream-version <version>  Build a specific upstream version

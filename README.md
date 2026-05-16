@@ -23,14 +23,14 @@ The system uses a centralized manager script [`scripts/ci_manager.sh`](scripts/c
 2.  **Resolve**: Fetches upstream versions and asset URLs.
 3.  **Render**: Generates a temporary `PKGBUILD`, optional `.install`, and other packaging assets.
 4.  **Build**: Verifies the package builds successfully in a clean environment.
-5.  **Install Test**: Runs the same package install smoke checks used by pull request validation for packages that will be published.
-6.  **Publish**: Pushes the rendered package contents to AUR only after the install test passes.
+5.  **Package Validation**: Installs the built package and runs package-level smoke checks.
+6.  **Publish**: Pushes the rendered package contents to AUR only after package validation passes.
 
-The package validation workflow and the publish workflow now share the same install-test path, so scheduled AUR publishes are gated on the same package-level smoke checks used in pull requests.
+The package validation workflow and the publish workflow share the same smoke-check path, so scheduled AUR publishes are gated on the same package-level checks used in pull requests.
 
 For a deeper explanation of the moving parts, see [docs/WORKFLOW.md](docs/WORKFLOW.md). For framework boundaries and package extension rules, see [docs/PACKAGE_FRAMEWORK.md](docs/PACKAGE_FRAMEWORK.md).
 
-The publish workflow runs automatically **every 6 hours**. The validation workflow runs on pull requests, pushes to `main`, and manual dispatches.
+The publish workflow runs automatically **every 6 hours**. Package validation runs on pull requests, pushes to `main`, and manual dispatches. The binary-release producer runs on schedule, manual dispatch, and non-`main` branch pushes that touch relevant files.
 
 ## 💻 Local Usage
 
@@ -39,20 +39,20 @@ You can use the `ci_manager.sh` script to test changes locally. This script hand
 ### Prerequisites
 *   Arch Linux based system (or container)
 *   `sudo` privileges
-*   Docker or Podman for local `run_test`
+*   Docker or Podman for local `run-test`
 
 ### Commands
 
 **1. Install Dependencies:**
 ```bash
 sudo ./scripts/ci_manager.sh install
-sudo ./scripts/ci_manager.sh setup_user
+sudo ./scripts/ci_manager.sh setup-user
 ```
 
-**2. Run Update (Dry Run):**
+**2. Run Publish Path (Dry Run):**
 ```bash
-# Syntax: ./scripts/ci_manager.sh run_update <pkgname-or-package_dir> [flags]
-./scripts/ci_manager.sh run_update antigravity-tools-bin --dry-run
+# Syntax: ./scripts/ci_manager.sh run-publish <pkgname-or-path> [flags]
+./scripts/ci_manager.sh run-publish antigravity-tools-bin --dry-run
 ```
 
 **3. Run Metadata Preflight:**
@@ -62,12 +62,12 @@ sudo ./scripts/ci_manager.sh setup_user
 
 **4. Run Publish Path Verification (Container/CI Recommended):**
 ```bash
-./scripts/ci_manager.sh run_update claude-code-stable-bin --dry-run --verify-install
+./scripts/ci_manager.sh run-publish claude-code-stable-bin --dry-run --verify-install
 ```
 
-**5. Run Containerized Install Test:**
+**5. Run Package Validation:**
 ```bash
-./scripts/ci_manager.sh run_test antigravity-tools-bin
+./scripts/ci_manager.sh run-test antigravity-tools-bin
 ```
 
 This path uses an ephemeral Arch container locally, builds the package, installs it with `pacman -U`, and runs smoke checks against the installed files.

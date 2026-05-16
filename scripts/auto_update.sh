@@ -44,7 +44,7 @@ AUR_SSH_HOST=aur.archlinux.org
 AUR_SSH_HOST_ED25519_FINGERPRINT='SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4'
 
 show_help() {
-    echo "Usage: ./auto_update.sh [package_name_or_dir] [options]"
+    echo "Usage: scripts/auto_update.sh <pkgname-or-path> [options]"
     echo ""
     echo "Options:"
     echo "  --dry-run            Simulate run, do not push to AUR"
@@ -104,7 +104,7 @@ build_and_stage_workspace() {
 
     prepare_workspace_for_build "$workspace"
 
-    log_group_start "Render + Verify (${TARGET_PKGVER}-${TARGET_PKGREL})"
+    log_group_start "Render + Build (${TARGET_PKGVER}-${TARGET_PKGREL})"
     build_workspace "$workspace" "$SKIP_BUILD" "${CI:-false}"
     log_group_end
 
