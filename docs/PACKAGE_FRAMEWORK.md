@@ -73,7 +73,7 @@ Shared scripts may branch on framework concepts. These are acceptable because pa
 | Install script | `INSTALL_MODE` | `none`, `generated`, `static` |
 | Service unit | `SERVICE_MODE` | `none`, `generated`, `static` |
 | Service scope | `SERVICE_SCOPE` | `user`, `system` |
-| Repo-built artifacts | `BINARY_RELEASE_TEMPLATE` | `source-cargo` |
+| Binary-release asset builder | `BINARY_RELEASE_TEMPLATE` | `source-cargo` |
 
 Shared scripts must not branch on package names.
 
