@@ -23,6 +23,18 @@ die() {
     exit 1
 }
 
+env_uint_or_default() {
+    local name=$1
+    local default=$2
+    local value=${!name:-$default}
+
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+        printf '%d' "$((10#$value))"
+    else
+        printf '%d' "$default"
+    fi
+}
+
 retry_with_backoff() {
     local description=$1
     local max_attempts=${2:-3}
@@ -30,6 +42,14 @@ retry_with_backoff() {
     local attempt=1
     local status=0
     local delay=0
+    local base_delay
+    local max_delay
+    local jitter
+    local jitter_delay=0
+
+    base_delay=$(env_uint_or_default RETRY_BACKOFF_BASE_SECONDS 2)
+    max_delay=$(env_uint_or_default RETRY_BACKOFF_MAX_SECONDS 60)
+    jitter=$(env_uint_or_default RETRY_BACKOFF_JITTER_SECONDS 5)
 
     while true; do
         if "$@"; then
@@ -43,7 +63,13 @@ retry_with_backoff() {
             return "$status"
         fi
 
-        delay=$((attempt * 2))
+        delay=$((base_delay * (2 ** (attempt - 1))))
+        [ "$delay" -le "$max_delay" ] || delay=$max_delay
+        if [ "$jitter" -gt 0 ]; then
+            jitter_delay=$((RANDOM % (jitter + 1)))
+            delay=$((delay + jitter_delay))
+        fi
+
         log_info "${description} failed (attempt ${attempt}/${max_attempts}, exit ${status}); retrying in ${delay}s."
         sleep "$delay"
         attempt=$((attempt + 1))
@@ -52,7 +78,9 @@ retry_with_backoff() {
 
 fetch_http_status_with_retry() {
     local url=$1
-    local retry_attempts=${HTTP_STATUS_RETRY_ATTEMPTS:-10}
+    local retry_attempts
+
+    retry_attempts=$(env_uint_or_default HTTP_STATUS_RETRY_ATTEMPTS 10)
 
     [ -n "$url" ] || die "URL is required"
     require_cmd curl

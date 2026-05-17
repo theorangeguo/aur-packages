@@ -57,10 +57,10 @@ jobs:
     if: needs.discovery.outputs.has_packages == 'true'
     strategy:
       fail-fast: false
-      # AUR is sensitive to bursty HTTPS clone/status requests. Publish one
-      # package at a time so one workflow run does not amplify transient AUR
-      # instability across the whole matrix.
-      max-parallel: 1
+      # AUR is sensitive to bursty clone/status requests. Publish a small
+      # batch at a time and use jittered retries in scripts so one
+      # transient AUR failure does not take down the whole matrix.
+      max-parallel: 3
       matrix: ${{ fromJson(needs.discovery.outputs.matrix) }}
 
     concurrency:

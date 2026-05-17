@@ -6,8 +6,11 @@ prepare_aur_repo() {
     local aur_readonly_url="https://aur.archlinux.org/${package_name}.git"
     local aur_ssh_url="ssh://aur@aur.archlinux.org/${package_name}.git"
     local aur_package_url="https://aur.archlinux.org/packages/${package_name}"
-    local clone_attempts=${AUR_CLONE_MAX_ATTEMPTS:-8}
+    local clone_attempts
     local package_status
+
+    clone_attempts=$(env_uint_or_default AUR_CLONE_MAX_ATTEMPTS 6)
+    [ "$clone_attempts" -ge 1 ] || clone_attempts=1
 
     clone_aur_repo() {
         rm -rf "$aur_dir"

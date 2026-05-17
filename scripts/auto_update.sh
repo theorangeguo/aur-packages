@@ -100,6 +100,22 @@ prepare_aur_ssh() {
     chmod 600 "$SSH_KNOWN_HOSTS_FILE"
 }
 
+spread_aur_access() {
+    local max_delay
+    local delay=0
+
+    max_delay=$(env_uint_or_default AUR_INITIAL_JITTER_SECONDS 10)
+
+    [ "${CI:-false}" = true ] || return 0
+    [ "$max_delay" -gt 0 ] || return 0
+
+    delay=$((RANDOM % (max_delay + 1)))
+    if [ "$delay" -gt 0 ]; then
+        log_info "Waiting ${delay}s before AUR access to spread matrix jobs."
+        sleep "$delay"
+    fi
+}
+
 build_and_stage_workspace() {
     local workspace="${TMP_ROOT}/workspace-${TARGET_PKGREL}"
 
@@ -228,6 +244,7 @@ main() {
     mkdir -p "$SRCDEST" "$PKGDEST"
 
     log_group_start "Initialization: ${PKG_DIR}"
+    spread_aur_access
     if [ "${CI:-false}" = true ] && [ -n "${AUR_SSH_PRIVATE_KEY:-}" ]; then
         prepare_aur_ssh
     fi
