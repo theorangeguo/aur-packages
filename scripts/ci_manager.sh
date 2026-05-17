@@ -311,6 +311,7 @@ Usage: $0 <command> [args]
 
 Commands:
   discover
+  detect-updates <args>
   discover-binary-releases <args>  (alias: discover_binary_releases)
   check-framework-boundaries       (alias: check_framework_boundaries)
   install
@@ -325,6 +326,11 @@ EOF
 case "$COMMAND" in
     discover)
         run_discovery "$@"
+        ;;
+
+    detect-updates)
+        chmod +x scripts/detect_updates.sh
+        bash scripts/detect_updates.sh "$@"
         ;;
 
     discover_binary_releases|discover-binary-releases)

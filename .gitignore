@@ -15,6 +15,7 @@
 .BUILDINFO
 .MTREE
 .PKGINFO
+.update-state/
 
 # OS Generated
 .DS_Store
