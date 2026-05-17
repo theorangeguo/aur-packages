@@ -67,7 +67,7 @@ jobs:
             ARGS+=(--base-ref "$PUSH_BEFORE_SHA" --head-ref "$PUSH_SHA")
           fi
 
-          ./scripts/ci_manager.sh discover_binary_releases "${ARGS[@]}"
+          ./scripts/ci_manager.sh discover-binary-releases "${ARGS[@]}"
 
   build:
     needs: discovery
@@ -98,4 +98,4 @@ jobs:
             ARGS+=(--force)
           fi
 
-          ./scripts/ci_manager.sh build_binary_release "${{ matrix.package }}" "${ARGS[@]}"
+          ./scripts/ci_manager.sh build-binary-release "${{ matrix.package }}" "${ARGS[@]}"

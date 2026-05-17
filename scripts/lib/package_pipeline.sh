@@ -39,7 +39,7 @@ render_pkgbuild() {
 prepare_workspace_for_build() {
     local workspace=$1
 
-    prepare_workspace_assets "$workspace"
+    prepare_workspace_package_files "$workspace"
     render_pkgbuild "$workspace"
     prefetch_resolved_sources
 }
@@ -109,7 +109,7 @@ build_workspace() {
     local noninteractive=${3:-false}
 
     if [ "$(id -u)" -eq 0 ]; then
-        id -u builder >/dev/null 2>&1 || die "builder user not found; run ./scripts/ci_manager.sh setup_user first"
+        id -u builder >/dev/null 2>&1 || die "builder user not found; run ./scripts/ci_manager.sh setup-user first"
         build_workspace_as_builder "$workspace" "$skip_build" "$noninteractive"
     else
         build_workspace_as_current_user "$workspace" "$skip_build" "$noninteractive"
@@ -196,7 +196,7 @@ install_and_verify_workspace() {
     local workspace=$1
     local package_files=()
 
-    [ "$(id -u)" -eq 0 ] || die "Install verification must run as root"
+    [ "$(id -u)" -eq 0 ] || die "Package validation must run as root"
 
     mapfile -t package_files < "${workspace}/.packagelist"
     [ "${#package_files[@]}" -gt 0 ] || die "No built package files were produced"

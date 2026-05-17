@@ -36,7 +36,7 @@ flowchart TD
     H --> I[publish rendered files to AUR]
 ```
 
-The critical point is that **publish is gated by the same install smoke-test path used by package validation**.
+The critical point is that **publish is gated by the same package validation path used in pull requests**.
 
 Some `-bin` packages use this repository as the binary-release producer before the normal AUR pipeline consumes the asset. Those packages declare `BINARY_RELEASE_ENABLED=true` in `package.conf`; the generic binary-release workflow builds the upstream source in an Arch container, applies package-local patches, uploads a GitHub Release asset, and then the regular `binary-archive` package template downloads that asset during AUR validation/publish.
 
@@ -45,18 +45,20 @@ Some `-bin` packages use this repository as the binary-release producer before t
 | Entry point | Purpose |
 |---|---|
 | `scripts/ci_manager.sh discover` | Find all package directories that contain `package.conf` |
-| `scripts/ci_manager.sh discover_binary_releases` | Find packages with `BINARY_RELEASE_ENABLED=true` |
-| `scripts/ci_manager.sh build_binary_release <pkg>` | Build and publish self-built binary release assets for one package |
-| `scripts/ci_manager.sh preflight <pkg>` | Resolve upstream metadata and asset selectors without building or publishing |
-| `scripts/ci_manager.sh run_test <pkg>` | Build, install, and smoke-test one package (accepts bare package names or `packages/<pkgname>` paths) |
-| `scripts/ci_manager.sh run_update <pkg> ...` | Resolve upstream state, render packaging outputs, optionally install-test, and publish to AUR (accepts bare package names or `packages/<pkgname>` paths) |
-| `.github/workflows/build-binary-releases.yml` | Scheduled/manual producer workflow for repo-built binary release assets |
+| `scripts/ci_manager.sh discover-binary-releases` | Find packages with `BINARY_RELEASE_ENABLED=true` |
+| `scripts/ci_manager.sh build-binary-release <pkgname-or-path>` | Build and publish self-built binary-release assets for one package |
+| `scripts/ci_manager.sh preflight <pkgname-or-path>` | Resolve upstream metadata and asset selectors without building or publishing |
+| `scripts/ci_manager.sh run-test <pkgname-or-path>` | Build, install, and smoke-check one package |
+| `scripts/ci_manager.sh run-publish <pkgname-or-path> ...` | Resolve upstream state, render packaging outputs, optionally run package validation, and publish to AUR |
+| `.github/workflows/build-binary-releases.yml` | Scheduled/manual/branch-push producer workflow for repo-built binary-release assets |
 | `.github/workflows/package-test.yml` | Pull request / push validation workflow |
 | `.github/workflows/aur-publish.yml` | Scheduled/manual publish workflow |
 
+The older snake_case manager commands (`discover_binary_releases`, `build_binary_release`, `run_update`, and `run_test`) remain compatibility aliases. Prefer the kebab-case names in docs and workflows.
+
 ## 4. Shared Package Pipeline
 
-The shared build/install-test logic lives in `scripts/lib/package_pipeline.sh`.
+The shared build and smoke-check logic lives in `scripts/lib/package_pipeline.sh`.
 
 It is responsible for:
 
@@ -69,7 +71,7 @@ It is responsible for:
 
 Both validation and publish now call that same pipeline.
 
-The binary-release producer is separate from the AUR package pipeline. Its shared logic lives in `scripts/build_binary_release.sh`, `scripts/lib/binary_release.sh`, and `scripts/lib/artifact_source_cargo.sh`. This keeps package-specific build recipes declarative in `package.conf` rather than in package-specific workflow YAML.
+The binary-release producer is separate from the AUR package pipeline. Its shared logic lives in `scripts/build_binary_release.sh`, `scripts/lib/binary_release.sh`, and `scripts/lib/binary_release_source_cargo.sh`. This keeps package-specific binary-release asset recipes declarative in `package.conf` rather than in package-specific workflow YAML.
 
 For validation, discovery is change-aware:
 
@@ -81,8 +83,8 @@ For scheduled publishing, each `aur-publish.yml` package job runs a metadata pre
 
 ```mermaid
 flowchart TD
-    A[package-test.yml] --> B[scripts/ci_manager.sh run_test]
-    C[aur-publish.yml] --> D[scripts/ci_manager.sh run_update --verify-install]
+    A[package-test.yml] --> B[scripts/ci_manager.sh run-test]
+    C[aur-publish.yml] --> D[scripts/ci_manager.sh run-publish --verify-install]
 
     B --> E[scripts/test_package.sh]
     D --> F[scripts/auto_update.sh]
@@ -103,9 +105,9 @@ flowchart TD
 
 ## 5. Validation vs Publish
 
-### Validation path
+### Package validation path
 
-`run_test` is the thinner path:
+`run-test` is the thinner path:
 
 - resolve current upstream state
 - render a temporary workspace
@@ -117,14 +119,14 @@ It never stages or pushes AUR changes.
 
 ### Publish path
 
-`run_update` adds AUR-specific steps around the same build/install-test path:
+`run-publish` adds AUR-specific steps around the same build and smoke-check path:
 
 1. clone or initialize the AUR repo
 2. read the current AUR `pkgver` / `pkgrel`
 3. resolve the current upstream version
 4. render the candidate packaging outputs
 5. build the candidate package
-6. if requested, install-test the candidate package
+6. if requested, run package validation for the candidate package
 7. sync rendered files into the staged AUR repo
 8. bump `pkgrel` if packaging changed without an upstream version change
 9. commit and push to AUR
@@ -134,7 +136,7 @@ flowchart TD
     A[load AUR state] --> B[resolve upstream]
     B --> C[render candidate workspace]
     C --> D[build candidate package]
-    D --> E[install-test candidate package]
+    D --> E[validate candidate package]
     E --> F[sync rendered files into staged AUR repo]
     F --> G{same upstream version\nbut packaging changed?}
     G -- yes --> H[bump pkgrel and rebuild]
@@ -155,7 +157,7 @@ Only the final rendered AUR outputs are staged into the AUR repo.
 
 ## 7. Privilege Boundaries
 
-Builds must still happen as the non-root `builder` user. Install verification and AUR publishing need root or CI orchestration.
+Builds must still happen as the non-root `builder` user. Package validation and AUR publishing need root or CI orchestration.
 
 ```mermaid
 flowchart LR
@@ -184,23 +186,23 @@ The checks confirm installation shape, not full runtime behavior.
 ## 9. Practical Commands
 
 ```bash
-# Build/publish repo-produced binary release assets
-./scripts/ci_manager.sh build_binary_release <package_dir>
+# Build/publish repo-produced binary-release assets
+./scripts/ci_manager.sh build-binary-release <pkgname-or-path>
 
 # Dry-run the binary-release producer
-./scripts/ci_manager.sh build_binary_release <package_dir> --dry-run
+./scripts/ci_manager.sh build-binary-release <pkgname-or-path> --dry-run
 
 # Local package validation
-./scripts/ci_manager.sh run_test <package_dir>
+./scripts/ci_manager.sh run-test <pkgname-or-path>
 
 # Dry-run publish logic without pushing
-./scripts/ci_manager.sh run_update <package_dir> --dry-run
+./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run
 
 # Fast metadata/asset selector preflight
-./scripts/ci_manager.sh preflight <package_dir>
+./scripts/ci_manager.sh preflight <pkgname-or-path>
 
 # Full publish-path validation (recommended in CI or an ephemeral container)
-./scripts/ci_manager.sh run_update <package_dir> --dry-run --verify-install
+./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run --verify-install
 ```
 
 Use `--verify-install` in CI or disposable containers rather than on a long-lived host, because it installs the candidate package before the publish step.

@@ -81,11 +81,11 @@ jobs:
           ./scripts/ci_manager.sh preflight "${{ matrix.package }}"
 
           # 3. Setup Build User
-          ./scripts/ci_manager.sh setup_user
+          ./scripts/ci_manager.sh setup-user
 
           # 4. Construct Arguments
           ARGS=()
           if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then ARGS+=(--dry-run); fi
 
-          # 5. Run Update + Install Verification
-          ./scripts/ci_manager.sh run_update "${{ matrix.package }}" --verify-install "${ARGS[@]}"
+          # 5. Run publish path with package validation
+          ./scripts/ci_manager.sh run-publish "${{ matrix.package }}" --verify-install "${ARGS[@]}"

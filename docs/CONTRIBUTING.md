@@ -16,6 +16,13 @@ mkdir -p packages/my-package-name
 ### 2. Create `package.conf`
 This is the package source of truth.
 
+Naming conventions:
+
+- Keep the package directory name identical to `PKGNAME`.
+- Prefer kebab-case package names. Versioned library packages may include a dot when that matches Arch naming conventions, such as `wlroots0.20-vmwgfx`.
+- Let `-bin` in `PKGNAME` communicate binary packaging; keep `PKGDESC` focused on the software itself rather than adding redundant `(Binary)` wording.
+- Include the architecture in architecture-specific source rename fields, for example `SOURCE_RENAME_X86_64='${pkgname}-${pkgver}-x86_64.tar.gz'`.
+
 Typical fields include:
 
 ```bash
@@ -159,7 +166,7 @@ Current built-in upstream resolvers:
 
 `github-release-assets` can consume either the latest release or a release family. Set `UPSTREAM_RELEASE_TAG_PREFIX` plus `UPSTREAM_ASSET_NAME_<ARCH>` to select the newest release whose tag starts with the prefix and contains the exact expected asset names.
 
-Template-driven install tests automatically validate common installed outputs such as:
+Template-driven package validation automatically checks common installed outputs such as:
 - `INSTALL_BIN_PATH`
 - generated or static service files
 - appimage desktop entries
@@ -173,21 +180,21 @@ Use `TEST_PATHS`, `TEST_EXECUTABLES`, and `TEST_COMMANDS` only when a package ne
 Before committing, test the package locally from the repository root.
 
 ```bash
-./scripts/ci_manager.sh build_binary_release my-package-name --dry-run
-./scripts/ci_manager.sh build_binary_release my-package-name --skip-publish
-./scripts/ci_manager.sh run_update my-package-name --dry-run
-./scripts/ci_manager.sh run_test my-package-name
+./scripts/ci_manager.sh build-binary-release my-package-name --dry-run
+./scripts/ci_manager.sh build-binary-release my-package-name --skip-publish
+./scripts/ci_manager.sh run-publish my-package-name --dry-run
+./scripts/ci_manager.sh run-test my-package-name
 ```
 
 The manager accepts either a bare package name like `my-package-name` or an explicit path like `packages/my-package-name`.
 
-Run `build_binary_release` before `run_update`/`run_test` for self-built `-bin` packages when the expected GitHub release asset does not exist yet.
+Run `build-binary-release` before `run-publish`/`run-test` for self-built `-bin` packages when the expected GitHub release asset does not exist yet.
 
 This is the smallest meaningful test in this repo. It resolves upstream state, renders a temporary `PKGBUILD`, refreshes checksums, generates `.SRCINFO`, and verifies the build.
 
-`run_test` is the stronger validation path. It runs in an Arch container, builds the package, installs it with `pacman -U`, and checks the installed files. The scheduled AUR publish workflow now uses that same install-test path before publishing package updates.
+`run-test` is the stronger validation path. It runs in an Arch container, builds the package, installs it with `pacman -U`, and checks the installed files. The scheduled AUR publish workflow now uses that same package validation path before publishing package updates.
 
-If you manually use `run_update --verify-install`, prefer doing so inside CI or an ephemeral container rather than on a long-lived host system.
+If you manually use `run-publish --verify-install`, prefer doing so inside CI or an ephemeral container rather than on a long-lived host system.
 
 ### 6. Update Documentation
 When adding or removing packages, update `README.md`.
@@ -206,7 +213,7 @@ The scheduled workflow does this for each package:
 5. Refresh checksums and generate `.SRCINFO`
 6. Build locally in CI
 7. Install the built package and run smoke checks
-8. Publish to AUR only if the install test passes
+8. Publish to AUR only if package validation passes
 
 ### Packaging-only changes
 If upstream version stays the same but rendered package contents change, the automation bumps `pkgrel` based on the current AUR repo state.

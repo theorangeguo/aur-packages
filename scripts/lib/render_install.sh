@@ -1,6 +1,6 @@
 #!/bin/bash
 
-prepare_workspace_assets() {
+prepare_workspace_package_files() {
     local workspace=$1
     local copied_path
     local relative_path
