@@ -19,6 +19,10 @@ env:
   AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
   AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
 
+concurrency:
+  group: aur-publish
+  cancel-in-progress: false
+
 jobs:
   # ----------------------------------------------------------------------------
   # Phase 1: Discovery
@@ -53,6 +57,10 @@ jobs:
     if: needs.discovery.outputs.has_packages == 'true'
     strategy:
       fail-fast: false
+      # AUR is sensitive to bursty HTTPS clone/status requests. Publish one
+      # package at a time so one workflow run does not amplify transient AUR
+      # instability across the whole matrix.
+      max-parallel: 1
       matrix: ${{ fromJson(needs.discovery.outputs.matrix) }}
 
     concurrency:

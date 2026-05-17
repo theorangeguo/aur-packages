@@ -58,6 +58,12 @@ sudo ./scripts/ci_manager.sh setup-user
 - It resolves upstream metadata, renders temporary packaging files, refreshes checksums, generates `.SRCINFO`, and verifies one package build.
 - `run-test` is the stronger validation path: it builds the package, installs it, and performs smoke checks against the installed files.
 
+### Mandatory verification before reporting completion
+- For every package affected by a change, run both `./scripts/ci_manager.sh run-test <pkgname-or-path>` and `./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run` before saying the work is complete.
+- For shared script/workflow changes that can affect multiple packages, run those two commands for every package in the affected matrix. If an external infrastructure failure blocks verification, do not claim success; report the exact failing command and failing dependency.
+- If build verification is intentionally skipped for metadata-only debugging, say so explicitly and use `--skip-build` only as an additional diagnostic, not as a replacement for the required package validation.
+- Record the exact validation commands and outcomes in the final response or PR body.
+
 ### Lower-level updater
 ```bash
 bash scripts/auto_update.sh <pkgname-or-path> [--dry-run] [--skip-build]

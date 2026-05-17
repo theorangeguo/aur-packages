@@ -4,15 +4,22 @@ prepare_aur_repo() {
     local package_name=$1
     local aur_dir=$2
     local aur_readonly_url="https://aur.archlinux.org/${package_name}.git"
+    local aur_ssh_url="ssh://aur@aur.archlinux.org/${package_name}.git"
     local aur_package_url="https://aur.archlinux.org/packages/${package_name}"
+    local clone_attempts=${AUR_CLONE_MAX_ATTEMPTS:-8}
     local package_status
 
     clone_aur_repo() {
         rm -rf "$aur_dir"
-        git clone -q "$aur_readonly_url" "$aur_dir"
+        if [ -n "${SSH_KEY_FILE:-}" ] && [ -f "${SSH_KEY_FILE:-}" ] && [ -n "${SSH_KNOWN_HOSTS_FILE:-}" ] && [ -f "${SSH_KNOWN_HOSTS_FILE:-}" ]; then
+            GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o UserKnownHostsFile=$SSH_KNOWN_HOSTS_FILE -o StrictHostKeyChecking=yes -o BatchMode=yes -o IdentitiesOnly=yes" \
+                git clone -q "$aur_ssh_url" "$aur_dir"
+        else
+            git clone -q "$aur_readonly_url" "$aur_dir"
+        fi
     }
 
-    if retry_with_backoff "Clone AUR repository for ${package_name}" 3 clone_aur_repo; then
+    if retry_with_backoff "Clone AUR repository for ${package_name}" "$clone_attempts" clone_aur_repo; then
         AUR_REPO_DIR=$aur_dir
         return 0
     fi

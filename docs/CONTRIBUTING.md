@@ -179,12 +179,16 @@ Use `TEST_PATHS`, `TEST_EXECUTABLES`, and `TEST_COMMANDS` only when a package ne
 ### 5. Local Verification
 Before committing, test the package locally from the repository root.
 
+Every package-affecting change must pass both package validation and publish-path dry-run before it is reported as complete:
+
 ```bash
 ./scripts/ci_manager.sh build-binary-release my-package-name --dry-run
 ./scripts/ci_manager.sh build-binary-release my-package-name --skip-publish
 ./scripts/ci_manager.sh run-publish my-package-name --dry-run
 ./scripts/ci_manager.sh run-test my-package-name
 ```
+
+For shared script or workflow changes, run `run-publish --dry-run` and `run-test` for every package in the affected matrix. If external infrastructure prevents completion, record the exact failing command and dependency instead of treating the change as verified.
 
 The manager accepts either a bare package name like `my-package-name` or an explicit path like `packages/my-package-name`.
 

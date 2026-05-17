@@ -73,6 +73,10 @@ trap cleanup EXIT
 prepare_aur_ssh() {
     local fingerprint
 
+    if [ -n "$SSH_KEY_FILE" ] && [ -f "$SSH_KEY_FILE" ] && [ -n "$SSH_KNOWN_HOSTS_FILE" ] && [ -f "$SSH_KNOWN_HOSTS_FILE" ]; then
+        return 0
+    fi
+
     require_cmd ssh-keyscan
     require_cmd ssh-keygen
     require_cmd awk
@@ -86,7 +90,7 @@ prepare_aur_ssh() {
     chmod 600 "$SSH_KEY_FILE"
 
     SSH_KNOWN_HOSTS_FILE=$(mktemp)
-    retry_with_backoff "Fetch AUR SSH host key" 3 fetch_aur_ssh_host_key \
+    retry_with_backoff "Fetch AUR SSH host key" "${AUR_SSH_HOST_KEY_MAX_ATTEMPTS:-5}" fetch_aur_ssh_host_key \
         || die "Failed to fetch AUR SSH host key"
     [ -s "$SSH_KNOWN_HOSTS_FILE" ] || die "Fetched empty AUR SSH host key set"
 
@@ -132,7 +136,7 @@ publish_to_aur() {
         local git_ssh_command
 
         prepare_aur_ssh
-        git_ssh_command="ssh -i $SSH_KEY_FILE -o UserKnownHostsFile=$SSH_KNOWN_HOSTS_FILE -o StrictHostKeyChecking=yes"
+        git_ssh_command="ssh -i $SSH_KEY_FILE -o UserKnownHostsFile=$SSH_KNOWN_HOSTS_FILE -o StrictHostKeyChecking=yes -o BatchMode=yes -o IdentitiesOnly=yes"
 
         if git -C "$AUR_REPO_DIR" remote get-url origin >/dev/null 2>&1; then
             git -C "$AUR_REPO_DIR" remote set-url origin "$remote_url"
@@ -224,6 +228,9 @@ main() {
     mkdir -p "$SRCDEST" "$PKGDEST"
 
     log_group_start "Initialization: ${PKG_DIR}"
+    if [ "${CI:-false}" = true ] && [ -n "${AUR_SSH_PRIVATE_KEY:-}" ]; then
+        prepare_aur_ssh
+    fi
     prepare_aur_repo "$PKGNAME" "$AUR_DIR"
     load_aur_state
     log_info "Package: $PKGNAME"
