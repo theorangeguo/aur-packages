@@ -52,11 +52,12 @@ retry_with_backoff() {
 
 fetch_http_status_with_retry() {
     local url=$1
+    local retry_attempts=${HTTP_STATUS_RETRY_ATTEMPTS:-10}
 
     [ -n "$url" ] || die "URL is required"
     require_cmd curl
 
-    curl -sS -L --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 20 \
+    curl -sS -L --retry "$retry_attempts" --retry-all-errors --retry-delay 2 --connect-timeout 20 \
         -o /dev/null -w '%{http_code}' "$url"
 }
 
