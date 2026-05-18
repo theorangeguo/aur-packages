@@ -28,7 +28,7 @@ The private key must be unencrypted.
 
 ## 2. Package Configuration
 
-The pipeline auto-discovers packages by locating `package.conf` files.
+The pipeline auto-discovers packages by locating PackageSpec v1 `package.conf` files.
 
 Each package directory should contain:
 
@@ -40,7 +40,7 @@ packages/
     files/          # optional
 ```
 
-`package.conf` is the source of truth. CI renders `PKGBUILD` and `.SRCINFO` only during execution.
+`package.conf` is the PackageSpec v1 source of truth. CI renders `PKGBUILD` and `.SRCINFO` only during execution.
 
 ## 3. How It Works
 
@@ -50,7 +50,7 @@ The validation workflow reuses the same discovery matrix, but runs `./scripts/ci
 
 ### Phase 1: Discovery
 - **Command**: `scripts/ci_manager.sh discover`
-- **Action**: scans for directories containing `package.conf`
+- **Action**: scans for directories containing PackageSpec v1 `package.conf`
 - **Output**: GitHub Actions matrix JSON
 
 On pull requests and ordinary pushes, discovery narrows the validation matrix to the packages touched by the diff. If automation files under `scripts/` or `.github/workflows/` change, discovery falls back to a full-package sweep.

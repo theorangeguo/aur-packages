@@ -2,13 +2,18 @@
 
 render_binary_archive_pkgbuild() {
     local workspace=$1
-    local binary_source_path=${BINARY_SOURCE_PATH:-$BINARY_NAME}
+    local pkgname=$PKGNAME
+    local pkgver=$TARGET_PKGVER
+    local carch=${CARCH:-}
+    local binary_source_path
     local wrapper_source_path=${WRAPPER_SOURCE_PATH:-}
     local wrapper_install_path=${WRAPPER_INSTALL_PATH:-}
     local wrapper_mode=${WRAPPER_MODE:-755}
     local service_path=""
 
     register_workspace_sync_file "PKGBUILD"
+
+    binary_source_path=$(expand_template "${BINARY_SOURCE_PATH:-$BINARY_NAME}")
 
     if [ "$SERVICE_MODE" != "none" ]; then
         service_path=$(service_install_path)

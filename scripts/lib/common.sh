@@ -1,5 +1,9 @@
 #!/bin/bash
 
+COMMON_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "${COMMON_LIB_DIR}/package_definition.sh"
+
 log_group_start() {
     echo "::group::$1"
 }
@@ -85,16 +89,25 @@ resolve_package_dir_input() {
     esac
 
     [ -d "$candidate" ] || die "Directory '$candidate' does not exist."
-    [ -f "$candidate/package.conf" ] || die "package.conf not found in '$candidate'."
+    package_has_definition "$candidate" || die "PackageSpec definition not found in '$candidate'."
 
     printf '%s' "$candidate"
 }
 
 expand_template() {
     local template=$1
-    local result
+    local result=$template
 
-    eval "result=\"$template\""
+    result=${result//\$\{pkgname\}/${pkgname:-}}
+    result=${result//\$\{pkgver\}/${pkgver:-}}
+    result=${result//\$\{carch\}/${carch:-}}
+    result=${result//\$\{upstream_version\}/${upstream_version:-}}
+    result=${result//\$\{release_rev\}/${release_rev:-}}
+
+    if [[ "$result" =~ \$\{[A-Za-z_][A-Za-z0-9_]*\} ]] || [[ "$result" =~ \$[A-Za-z_][A-Za-z0-9_]* ]]; then
+        die "Unsupported template placeholder in: ${template}"
+    fi
+
     printf '%s' "$result"
 }
 

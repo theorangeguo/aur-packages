@@ -5,6 +5,9 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
 SELF_PATH=$(realpath "${BASH_SOURCE[0]}")
 
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/package_definition.sh"
+
 failures=0
 package_names=()
 shared_files=()
@@ -16,29 +19,15 @@ add_failure() {
 }
 
 load_package_names() {
-    local config_path
-    local line
+    local definition_path
     local name
 
-    while IFS= read -r config_path; do
-        add_package_name "$(basename "$(dirname "$config_path")")"
+    while IFS= read -r definition_path; do
+        add_package_name "$(basename "$(dirname "$definition_path")")"
 
-        while IFS= read -r line; do
-            case "$line" in
-                PKGNAME=*)
-                    name=${line#PKGNAME=}
-                    name=${name%%#*}
-                    name=${name//[[:space:]]/}
-                    name=${name%\'}
-                    name=${name#\'}
-                    name=${name%\"}
-                    name=${name#\"}
-                    add_package_name "$name"
-                    break
-                    ;;
-            esac
-        done < "$config_path"
-    done < <(find "${REPO_ROOT}/packages" -mindepth 2 -maxdepth 2 -name package.conf -type f | sort)
+        name=$(package_spec_pkgname_from_file "$definition_path")
+        add_package_name "$name"
+    done < <(discover_package_definition_files "${REPO_ROOT}/packages")
 }
 
 add_package_name() {
@@ -111,12 +100,23 @@ check_pkgname_branching() {
     done
 }
 
+check_package_specs_are_data_only() {
+    local definition_path
+
+    while IFS= read -r definition_path; do
+        if ! validate_package_spec_data_only "$definition_path"; then
+            add_failure "PackageSpec contains unsupported shell constructs: ${definition_path#"${REPO_ROOT}/"}"
+        fi
+    done < <(discover_package_definition_files "${REPO_ROOT}/packages")
+}
+
 main() {
     cd "$REPO_ROOT"
 
     load_package_names
     load_shared_files
 
+    check_package_specs_are_data_only
     check_package_names_absent_from_shared_code
     check_pkgname_branching
 
@@ -124,7 +124,7 @@ main() {
         cat >&2 <<'EOF'
 
 Shared automation must stay package-agnostic.
-Move package-specific behavior into package.conf, package-local hooks.sh, package-local files/, or a new generic framework feature.
+Move package-specific behavior into PackageSpec v1 package.conf, package-local hooks.sh, package-local files/, or a new generic framework feature.
 See docs/PACKAGE_FRAMEWORK.md.
 EOF
         exit 1

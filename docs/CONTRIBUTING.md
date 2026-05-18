@@ -1,6 +1,6 @@
 # Contributing & Packaging Guide
 
-This repository is template-driven. Each package directory declares a package via `package.conf`, with optional `hooks.sh` and `files/` overrides. `PKGBUILD` and `.SRCINFO` are generated only during local runs and CI.
+This repository is template-driven. Each package directory declares a PackageSpec v1 via `package.conf`, with optional `hooks.sh` and `files/` overrides. `PKGBUILD` and `.SRCINFO` are generated only during local runs and CI.
 
 For the end-to-end repository workflow, see [WORKFLOW.md](WORKFLOW.md). For framework boundaries, extension points, and anti-corruption rules, see [PACKAGE_FRAMEWORK.md](PACKAGE_FRAMEWORK.md).
 
@@ -14,7 +14,7 @@ mkdir -p packages/my-package-name
 ```
 
 ### 2. Create `package.conf`
-This is the package source of truth.
+This is the PackageSpec v1 source of truth.
 
 Naming conventions:
 
@@ -26,6 +26,8 @@ Naming conventions:
 Typical fields include:
 
 ```bash
+PACKAGE_SPEC_VERSION=1
+
 PKGNAME=my-package-name
 PACKAGE_TEMPLATE=binary-archive
 UPSTREAM_TYPE=github-release-assets
@@ -53,10 +55,10 @@ SOURCE_RENAME_X86_64='${pkgname}-${pkgver}-x86_64.tar.gz'
 BINARY_NAME=my-binary
 INSTALL_BIN_PATH=/usr/bin/my-binary
 BINARY_SOURCE_PATH=my-binary
-WRAPPER_SOURCE_PATH=files/my-wrapper
+WRAPPER_SOURCE_PATH=my-wrapper
 WRAPPER_INSTALL_PATH=/usr/bin/my-wrapper
 
-LOCAL_FILES=()
+LOCAL_FILES=('files/my-wrapper')
 DOC_FILES=()
 LICENSE_FILES=('LICENSE')
 TEST_PATHS=()
@@ -70,7 +72,7 @@ SERVICE_MODE=none
 Useful optional fields:
 
 - `PACKAGING_REPO_URL` — overrides the dedicated `# Packaging Repo:` comment added to rendered `PKGBUILD`s. This is separate from the AUR `url` metadata field, which should still point at upstream.
-- `BINARY_SOURCE_PATH` — path inside the extracted source archive to install as the main binary. Glob patterns are supported for archives with versioned top-level directories.
+- `BINARY_SOURCE_PATH` — path inside the extracted source archive to install as the main binary. Glob patterns are supported for archives with versioned top-level directories. Use single-quoted template placeholders such as `'${pkgname}-${pkgver}-x86_64'`; do not cross-reference other PackageSpec variables.
 - `WRAPPER_SOURCE_PATH`, `WRAPPER_INSTALL_PATH`, `WRAPPER_MODE` — install an additional wrapper script alongside the main binary.
 - `TEST_COMMANDS` — commands executed after install during smoke checks.
 
@@ -81,7 +83,7 @@ BINARY_RELEASE_ENABLED=true
 BINARY_RELEASE_TEMPLATE=source-cargo
 BINARY_RELEASE_REV=1
 BINARY_RELEASE_VERSION_TEMPLATE='${upstream_version}.r${release_rev}'
-BINARY_RELEASE_TAG_PREFIX="${PKGNAME}-v"
+BINARY_RELEASE_TAG_PREFIX=my-package-name-v
 BINARY_RELEASE_REPO=orange-guo/aur-packages
 BINARY_RELEASE_ARCHES=('x86_64')
 BINARY_RELEASE_ASSET_X86_64='${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'
@@ -102,9 +104,9 @@ BINARY_RELEASE_ARCHIVE_FILES=(
 
 UPSTREAM_REPO_USER=orange-guo
 UPSTREAM_REPO_NAME=aur-packages
-UPSTREAM_RELEASE_TAG_PREFIX="$BINARY_RELEASE_TAG_PREFIX"
-UPSTREAM_TAG_PREFIX="$BINARY_RELEASE_TAG_PREFIX"
-UPSTREAM_ASSET_NAME_X86_64="$BINARY_RELEASE_ASSET_X86_64"
+UPSTREAM_RELEASE_TAG_PREFIX=my-package-name-v
+UPSTREAM_TAG_PREFIX=my-package-name-v
+UPSTREAM_ASSET_NAME_X86_64='${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'
 ```
 
 `BINARY_RELEASE_REV` is part of `pkgver`. Bump it when the patchset or build recipe changes without an upstream version change. The generic `.github/workflows/build-binary-releases.yml` workflow discovers packages with `BINARY_RELEASE_ENABLED=true`, builds the configured assets, publishes them to GitHub Releases, and then the normal AUR package pipeline consumes those release assets.
@@ -212,7 +214,7 @@ Commit the package directory and docs changes.
 
 ### How updates work
 The scheduled workflow does this for each package:
-1. Discover package directories by `package.conf`
+1. Discover package directories by PackageSpec v1 `package.conf`
 2. Read current package state from the AUR repo
 3. Resolve upstream version and asset URLs
 4. Render a temporary `PKGBUILD`
@@ -249,7 +251,7 @@ packages/
 ### Generated files
 - Do **NOT** commit `.SRCINFO`
 - Do **NOT** commit generated `PKGBUILD`
-- Treat `package.conf` as the canonical package definition
+- Treat `package.conf` as the canonical PackageSpec v1 definition
 
 ### Service files and install scripts
 - Prefer `INSTALL_MODE=generated` for ordinary user-service packages
