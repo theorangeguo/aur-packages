@@ -79,7 +79,7 @@ Package-local files should be declared by semantic role, such as patches, local 
   - **smoke checks** for installed-file and command assertions
   - **publish path** for the AUR staging/commit/push flow
   - **binary-release asset** for repo-built GitHub Release assets consumed by `-bin` packages
-- Prefer kebab-case `scripts/ci_manager.sh` command names in docs and workflows. Snake_case names remain compatibility aliases.
+- Use kebab-case `scripts/aurpkg.py` command names in docs and workflows.
 
 Generated AUR outputs must not be committed under `packages/`:
 
@@ -104,7 +104,7 @@ The shared flow is always:
 9. run smoke checks
 10. publish rendered outputs to AUR only after validation passes
 
-Workflows should stay thin and call repository scripts such as `scripts/ci_manager.sh`. They should not gain package-specific jobs, matrices, or shell branches.
+Workflows should stay thin and call `python3 scripts/aurpkg.py`. They should not gain package-specific jobs, matrices, or shell branches.
 
 ## Framework dispatch points
 
@@ -239,17 +239,17 @@ These are framework limitations, not package-specific exceptions:
 
 - Architecture support is currently centered on `x86_64` and `aarch64` in several helpers.
 - `source-cargo` binary release generation currently supports `x86_64` only.
-- Existing `hooks.sh` is still sourced Bash; the framework guards against PackageSpec field mutation during hook load and upstream resolution, but future hook phases should move to subprocesses with structured output.
+- Existing `hooks.sh` is executed in a Bash subprocess; the framework guards against PackageSpec field mutation during hook load and upstream resolution and only accepts whitelisted outputs.
 - Some non-GitHub upstreams still require package-local hooks; repeated patterns should be promoted to resolvers.
 
 ## Boundary guard
 
-`scripts/check_framework_boundaries.sh` scans shared automation for package names and obvious package-name branching. It is a safety net, not a complete proof: review still needs to catch upstream-name hardcoding or generic-looking package exceptions. Package names belong under `packages/`, documentation, and generated AUR outputs, not in shared scripts or workflows.
+`python3 scripts/aurpkg.py check-framework-boundaries` scans shared automation for package names and obvious package-name branching. It is a safety net, not a complete proof: review still needs to catch upstream-name hardcoding or generic-looking package exceptions. Package names belong under `packages/`, documentation, and generated AUR outputs, not in shared scripts or workflows.
 
 Run it locally before opening PRs that touch automation:
 
 ```bash
-./scripts/ci_manager.sh check-framework-boundaries
+python3 scripts/aurpkg.py check-framework-boundaries
 ```
 
 The package validation workflow runs the same guard.

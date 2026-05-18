@@ -58,20 +58,18 @@ flowchart LR
 
 | Entry point | Purpose |
 |---|---|
-| `scripts/ci_manager.sh discover` | Find all package directories that contain PackageSpec v1 `package.toml` |
-| `scripts/ci_manager.sh detect-updates` | Resolve upstream state without AUR access and emit a targeted update matrix |
-| `scripts/ci_manager.sh discover-binary-releases` | Find packages with `[binary_release] enabled = true` |
-| `scripts/ci_manager.sh build-binary-release <pkgname-or-path>` | Build and publish self-built binary-release assets for one package |
-| `scripts/ci_manager.sh preflight <pkgname-or-path>` | Resolve upstream metadata and asset selectors without building or publishing |
-| `scripts/ci_manager.sh run-test <pkgname-or-path>` | Build, install, and smoke-check one package |
-| `scripts/ci_manager.sh run-publish <pkgname-or-path> ...` | Resolve upstream state, render packaging outputs, optionally run package validation, and publish to AUR |
+| `python3 scripts/aurpkg.py discover` | Find all package directories that contain PackageSpec v1 `package.toml` |
+| `python3 scripts/aurpkg.py detect-updates` | Resolve upstream state without AUR access and emit a targeted update matrix |
+| `python3 scripts/aurpkg.py discover-binary-releases` | Find packages with `[binary_release] enabled = true` |
+| `python3 scripts/aurpkg.py build-binary-release <pkgname-or-path>` | Build and publish self-built binary-release assets for one package |
+| `python3 scripts/aurpkg.py preflight <pkgname-or-path>` | Resolve upstream metadata and asset selectors without building or publishing |
+| `python3 scripts/aurpkg.py run-test <pkgname-or-path>` | Build, install, and smoke-check one package |
+| `python3 scripts/aurpkg.py run-publish <pkgname-or-path> ...` | Resolve upstream state, render packaging outputs, optionally run package validation, and publish to AUR |
 | `.github/workflows/build-binary-releases.yml` | Scheduled/manual/branch-push producer workflow for repo-built binary-release assets |
 | `.github/workflows/package-test.yml` | Pull request / push validation workflow |
 | `.github/workflows/aur-publish.yml` | Scheduled/manual publish workflow |
 
-The older snake_case manager commands (`discover_binary_releases`, `build_binary_release`, `run_update`, and `run_test`) remain compatibility aliases. Prefer the kebab-case names in docs and workflows.
-
-The framework implementation lives in the single-file Python CLI `scripts/aurpkg.py`. `scripts/ci_manager.sh` remains the stable user/CI entrypoint, while the older shell entrypoints are compatibility wrappers that dispatch into `aurpkg.py`.
+The framework implementation lives in the single-file Python CLI `scripts/aurpkg.py`. It is the repository's only script entrypoint.
 
 Scheduled publishing starts with the update detector. Detector state is only an optimization: it records resolved upstream fingerprints so scheduled runs can avoid unnecessary AUR access, but the publish path still re-resolves upstream and compares against the live AUR repo before publishing.
 
@@ -102,8 +100,8 @@ For scheduled publishing, each `aur-publish.yml` package job runs a metadata pre
 
 ```mermaid
 flowchart TD
-    A[package-test.yml] --> B[scripts/ci_manager.sh run-test]
-    C[aur-publish.yml] --> D[scripts/ci_manager.sh run-publish --verify-install]
+    A[package-test.yml] --> B[python3 scripts/aurpkg.py run-test]
+    C[aur-publish.yml] --> D[python3 scripts/aurpkg.py run-publish --verify-install]
 
     B --> G[scripts/aurpkg.py package pipeline]
     D --> G
@@ -203,22 +201,22 @@ The checks confirm installation shape, not full runtime behavior.
 
 ```bash
 # Build/publish repo-produced binary-release assets
-./scripts/ci_manager.sh build-binary-release <pkgname-or-path>
+python3 scripts/aurpkg.py build-binary-release <pkgname-or-path>
 
 # Dry-run the binary-release producer
-./scripts/ci_manager.sh build-binary-release <pkgname-or-path> --dry-run
+python3 scripts/aurpkg.py build-binary-release <pkgname-or-path> --dry-run
 
 # Local package validation
-./scripts/ci_manager.sh run-test <pkgname-or-path>
+python3 scripts/aurpkg.py run-test <pkgname-or-path>
 
 # Dry-run publish logic without pushing
-./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run
+python3 scripts/aurpkg.py run-publish <pkgname-or-path> --dry-run
 
 # Fast metadata/asset selector preflight
-./scripts/ci_manager.sh preflight <pkgname-or-path>
+python3 scripts/aurpkg.py preflight <pkgname-or-path>
 
 # Full publish-path validation (recommended in CI or an ephemeral container)
-./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run --verify-install
+python3 scripts/aurpkg.py run-publish <pkgname-or-path> --dry-run --verify-install
 ```
 
 Use `--verify-install` in CI or disposable containers rather than on a long-lived host, because it installs the candidate package before the publish step.

@@ -17,7 +17,7 @@ This repository contains my maintained Arch User Repository (AUR) packages. The 
 
 ## 🛠 Automation Workflow
 
-The system uses a centralized manager script [`scripts/ci_manager.sh`](scripts/ci_manager.sh) to handle the entire lifecycle:
+The system uses a single Python automation CLI [`scripts/aurpkg.py`](scripts/aurpkg.py) to handle the entire lifecycle:
 
 1.  **Discovery**: Automatically scans the repository for PackageSpec v1 definitions (`package.toml` files).
 2.  **Resolve**: Fetches upstream versions and asset URLs.
@@ -34,7 +34,7 @@ The publish workflow runs automatically **every 6 hours**. Package validation ru
 
 ## 💻 Local Usage
 
-You can use the `ci_manager.sh` script to test changes locally. This script handles dependency installation and user permission switching automatically.
+You can use `scripts/aurpkg.py` to test changes locally.
 
 ### Prerequisites
 *   Arch Linux based system (or container)
@@ -45,29 +45,29 @@ You can use the `ci_manager.sh` script to test changes locally. This script hand
 
 **1. Install Dependencies:**
 ```bash
-sudo ./scripts/ci_manager.sh install
-sudo ./scripts/ci_manager.sh setup-user
+sudo pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python
+sudo python3 scripts/aurpkg.py setup-user
 ```
 
 **2. Run Publish Path (Dry Run):**
 ```bash
-# Syntax: ./scripts/ci_manager.sh run-publish <pkgname-or-path> [flags]
-./scripts/ci_manager.sh run-publish antigravity-tools-bin --dry-run
+# Syntax: python3 scripts/aurpkg.py run-publish <pkgname-or-path> [flags]
+python3 scripts/aurpkg.py run-publish antigravity-tools-bin --dry-run
 ```
 
 **3. Run Metadata Preflight:**
 ```bash
-./scripts/ci_manager.sh preflight cli-proxy-api-bin
+python3 scripts/aurpkg.py preflight cli-proxy-api-bin
 ```
 
 **4. Run Publish Path Verification (Container/CI Recommended):**
 ```bash
-./scripts/ci_manager.sh run-publish claude-code-stable-bin --dry-run --verify-install
+python3 scripts/aurpkg.py run-publish claude-code-stable-bin --dry-run --verify-install
 ```
 
 **5. Run Package Validation:**
 ```bash
-./scripts/ci_manager.sh run-test antigravity-tools-bin
+python3 scripts/aurpkg.py run-test antigravity-tools-bin
 ```
 
 This path uses an ephemeral Arch container locally, builds the package, installs it with `pacman -U`, and runs smoke checks against the installed files.
