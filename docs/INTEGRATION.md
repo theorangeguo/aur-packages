@@ -44,12 +44,12 @@ packages/
 
 ## 3. How It Works
 
-The workflows in `.github/workflows/aur-publish.yml`, `.github/workflows/package-test.yml`, and `.github/workflows/build-binary-releases.yml` delegate all logic to `scripts/`.
+The workflows in `.github/workflows/aur-publish.yml`, `.github/workflows/package-test.yml`, and `.github/workflows/build-binary-releases.yml` delegate all package logic to `scripts/aurpkg.py`.
 
-The validation workflow reuses the same discovery matrix, but runs `./scripts/ci_manager.sh run-test <pkgname-or-path>` instead of publishing. The publish workflow uses the same package validation path before it stages and pushes updates to AUR.
+The validation workflow reuses the same discovery matrix, but runs `python3 scripts/aurpkg.py run-test <pkgname-or-path>` instead of publishing. The publish workflow uses the same package validation path before it stages and pushes updates to AUR.
 
 ### Phase 1: Discovery
-- **Command**: `scripts/ci_manager.sh discover`
+- **Command**: `python3 scripts/aurpkg.py discover`
 - **Action**: scans for directories containing PackageSpec v1 `package.toml`
 - **Output**: GitHub Actions matrix JSON
 
@@ -72,16 +72,16 @@ For `aur-publish.yml`, the same build and smoke-check path runs first, then the 
 
 ## 4. Local Testing
 
-Use the same manager script locally:
+Use the same CLI locally:
 
 ```bash
-sudo ./scripts/ci_manager.sh install
-sudo ./scripts/ci_manager.sh setup-user
-./scripts/ci_manager.sh run-publish antigravity-tools-bin --dry-run
-./scripts/ci_manager.sh run-test antigravity-tools-bin
+sudo pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python
+sudo python3 scripts/aurpkg.py setup-user
+python3 scripts/aurpkg.py run-publish antigravity-tools-bin --dry-run
+python3 scripts/aurpkg.py run-test antigravity-tools-bin
 ```
 
-The manager accepts either a bare package name or an explicit `packages/<pkgname>` path.
+The CLI accepts either a bare package name or an explicit `packages/<pkgname>` path.
 
 This is the repo's standard test path.
 
@@ -91,7 +91,7 @@ Local `run-test` requires Docker or Podman.
 
 Use `run-publish --verify-install` in CI or an ephemeral container, not on a long-lived host system, because it installs the candidate package before publishing.
 
-When the manager is invoked as root, package builds still run as the non-root `builder` user, but the root-owned publish path can install the built package for smoke testing before pushing to AUR. Non-root local runs use the current user.
+When the CLI is invoked as root, package builds still run as the non-root `builder` user, but the root-owned publish path can install the built package for smoke testing before pushing to AUR. Non-root local runs use the current user.
 
 ## 5. Security Measures
 

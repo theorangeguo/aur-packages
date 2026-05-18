@@ -14,10 +14,7 @@
 - `.github/workflows/aur-publish.yml`
 - `.github/workflows/package-test.yml`
 - `.github/workflows/build-binary-releases.yml`
-- `scripts/ci_manager.sh`
-- `scripts/auto_update.sh`
-- `scripts/test_package.sh`
-- `scripts/lib/`
+- `scripts/aurpkg.py`
 
 ## Repository facts and local rules
 - No Cursor rules were found in `.cursor/rules/` or `.cursorrules`.
@@ -31,8 +28,9 @@
 ## Repository workflow
 - Main flow: discover packages -> detect upstream changes -> read AUR state -> resolve upstream -> render temporary `PKGBUILD` -> refresh checksums -> generate `.SRCINFO` -> build -> publish to AUR.
 - Validation flow: discover packages -> resolve upstream -> render temporary `PKGBUILD` -> build -> install package in a container -> run smoke checks.
-- Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh detect-updates`, `scripts/ci_manager.sh preflight <pkgname-or-path>`, `scripts/ci_manager.sh run-publish <pkgname-or-path> ...`, `scripts/ci_manager.sh run-test <pkgname-or-path>`, `scripts/ci_manager.sh build-binary-release <pkgname-or-path> ...`, `scripts/auto_update.sh <pkgname-or-path> ...`, `scripts/test_package.sh <pkgname-or-path>`
-- When touching update logic, inspect `scripts/auto_update.sh`, the relevant files under `scripts/lib/`, and any package-local `hooks.sh`.
+- Main entrypoints: `python3 scripts/aurpkg.py discover`, `python3 scripts/aurpkg.py detect-updates`, `python3 scripts/aurpkg.py preflight <pkgname-or-path>`, `python3 scripts/aurpkg.py run-publish <pkgname-or-path> ...`, `python3 scripts/aurpkg.py run-test <pkgname-or-path>`, `python3 scripts/aurpkg.py build-binary-release <pkgname-or-path> ...`
+- `scripts/aurpkg.py` owns the framework implementation and is the only repository script entrypoint.
+- When touching update logic, inspect `scripts/aurpkg.py` and any package-local `hooks.sh`.
 
 ## Framework contract rules
 - Treat package definitions as a stable contract. `package.toml` is the current PackageSpec v1 frontend: strict TOML declarative data plus explicit extension points, not a programming language.
@@ -50,36 +48,30 @@
 - For GitHub release asset matching failures, inspect upstream release asset names and compare them against `[upstream.assets.<arch>]` selectors in the affected package.
 - Prefer tolerant architecture selectors when upstream naming commonly varies, such as accepting both `arm64` and `aarch64` where appropriate.
 - Keep fixes package-scoped unless repeated failures show the shared resolver or CI scripts are at fault.
-- After package config changes, run `./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run` as the minimum verification.
+- After package config changes, run `python3 scripts/aurpkg.py run-publish <pkgname-or-path> --dry-run` as the minimum verification.
 
 ## Build / lint / test / verification commands
 
 ### Environment setup
 ```bash
-sudo ./scripts/ci_manager.sh install
-sudo ./scripts/ci_manager.sh setup-user
+sudo pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python
+sudo python3 scripts/aurpkg.py setup-user
 ```
 
 ### Preferred verification for one package
 ```bash
-./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run
-./scripts/ci_manager.sh run-test <pkgname-or-path>
+python3 scripts/aurpkg.py run-publish <pkgname-or-path> --dry-run
+python3 scripts/aurpkg.py run-test <pkgname-or-path>
 ```
 - This is the repo's closest equivalent to a standard test command.
 - It resolves upstream metadata, renders temporary packaging files, refreshes checksums, generates `.SRCINFO`, and verifies one package build.
 - `run-test` is the stronger validation path: it builds the package, installs it, and performs smoke checks against the installed files.
 
 ### Mandatory verification before reporting completion
-- For every package affected by a change, run both `./scripts/ci_manager.sh run-test <pkgname-or-path>` and `./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run` before saying the work is complete.
+- For every package affected by a change, run both `python3 scripts/aurpkg.py run-test <pkgname-or-path>` and `python3 scripts/aurpkg.py run-publish <pkgname-or-path> --dry-run` before saying the work is complete.
 - For shared script/workflow changes that can affect multiple packages, run those two commands for every package in the affected matrix. If an external infrastructure failure blocks verification, do not claim success; report the exact failing command and failing dependency.
 - If build verification is intentionally skipped for metadata-only debugging, say so explicitly and use `--skip-build` only as an additional diagnostic, not as a replacement for the required package validation.
 - Record the exact validation commands and outcomes in the final response or PR body.
-
-### Lower-level updater
-```bash
-bash scripts/auto_update.sh <pkgname-or-path> [--dry-run] [--skip-build]
-```
-- Prefer the manager wrapper unless you specifically need the lower-level script.
 
 ### Lint / format status
 - No dedicated linter or formatter config was found (`shellcheck`, `shfmt`, `prettier`, `eslint`, `ruff`, `bats`, `pytest`, etc.).
@@ -88,7 +80,7 @@ bash scripts/auto_update.sh <pkgname-or-path> [--dry-run] [--skip-build]
 ## “Single test” guidance
 - There is no unit-test framework in this repo.
 - The smallest meaningful verification unit is one package directory.
-- When asked to run a single test, prefer `./scripts/ci_manager.sh run-test <pkgname-or-path>` for package validation, or `./scripts/ci_manager.sh run-publish <pkgname-or-path> --dry-run` for publish-path verification.
+- When asked to run a single test, prefer `python3 scripts/aurpkg.py run-test <pkgname-or-path>` for package validation, or `python3 scripts/aurpkg.py run-publish <pkgname-or-path> --dry-run` for publish-path verification.
 - Use `--skip-build` only for metadata-only debugging when build verification is intentionally unnecessary.
 
 ## Code style guidelines
@@ -145,10 +137,10 @@ bash scripts/auto_update.sh <pkgname-or-path> [--dry-run] [--skip-build]
 
 ### Naming, types, and data shapes
 - Package directories should be kebab-case and match PackageSpec `name`; versioned library package names may include dots when that matches Arch convention.
-- Prefer kebab-case `ci_manager.sh` commands in docs and workflows; snake_case command names are compatibility aliases only.
+- Use kebab-case `aurpkg.py` command names in docs and workflows.
 - Use consistent user-facing terms: package validation, smoke checks, publish path, and binary-release asset.
 - Common dynamic state variables use `RESOLVED_*` and `STATE_*` prefixes.
-- This repo is Bash-first internally, but package specs use strict TOML parsed with Python standard-library `tomllib`.
+- This repo is Python-first internally, but package-local hooks use Bash subprocesses with whitelisted outputs.
 - Prefer simple TOML data shapes: strings, arrays, and booleans.
 
 ### Error handling and security
