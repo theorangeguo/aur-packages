@@ -23,14 +23,15 @@
 - No Cursor rules were found in `.cursor/rules/` or `.cursorrules`.
 - No Copilot instructions were found in `.github/copilot-instructions.md`.
 - CI auto-discovers package directories by locating `package.conf` files.
+- Scheduled AUR publishing first runs upstream-only update detection and then dispatches only changed package jobs.
 - The current package state baseline comes from the AUR repo, not from this monorepo.
 - Keep workflow YAML thin; most behavior belongs in `scripts/`.
 - Build steps must run as the non-root `builder` user.
 
 ## Repository workflow
-- Main flow: discover packages -> read AUR state -> resolve upstream -> render temporary `PKGBUILD` -> refresh checksums -> generate `.SRCINFO` -> build -> publish to AUR.
+- Main flow: discover packages -> detect upstream changes -> read AUR state -> resolve upstream -> render temporary `PKGBUILD` -> refresh checksums -> generate `.SRCINFO` -> build -> publish to AUR.
 - Validation flow: discover packages -> resolve upstream -> render temporary `PKGBUILD` -> build -> install package in a container -> run smoke checks.
-- Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh preflight <pkgname-or-path>`, `scripts/ci_manager.sh run-publish <pkgname-or-path> ...`, `scripts/ci_manager.sh run-test <pkgname-or-path>`, `scripts/ci_manager.sh build-binary-release <pkgname-or-path> ...`, `scripts/auto_update.sh <pkgname-or-path> ...`, `scripts/test_package.sh <pkgname-or-path>`
+- Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh detect-updates`, `scripts/ci_manager.sh preflight <pkgname-or-path>`, `scripts/ci_manager.sh run-publish <pkgname-or-path> ...`, `scripts/ci_manager.sh run-test <pkgname-or-path>`, `scripts/ci_manager.sh build-binary-release <pkgname-or-path> ...`, `scripts/auto_update.sh <pkgname-or-path> ...`, `scripts/test_package.sh <pkgname-or-path>`
 - When touching update logic, inspect `scripts/auto_update.sh`, the relevant files under `scripts/lib/`, and any package-local `hooks.sh`.
 
 ## GitHub Actions failure triage
@@ -150,6 +151,7 @@ bash scripts/auto_update.sh <pkgname-or-path> [--dry-run] [--skip-build]
 ## Repo-specific gotchas
 - Upstream state resolution may use GitHub API or release-page scraping fallback when API access is unavailable.
 - Package updates compare against the current AUR repo, so packaging-only changes may bump `pkgrel` even when the upstream version is unchanged.
+- Update detector state under `.update-state/` is a cache optimization only; AUR state remains the authoritative publish baseline.
 - AUR sync tracks managed outputs via `.aur-managed-files` and preserves other unmanaged files.
 - `files/` assets are copied into temporary workspaces by basename; avoid basename collisions within one package.
 - Existing AUR repos may contain extra unmanaged files; the current sync logic preserves them.

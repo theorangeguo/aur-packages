@@ -190,6 +190,8 @@ Every package-affecting change must pass both package validation and publish-pat
 
 For shared script or workflow changes, run `run-publish --dry-run` and `run-test` for every package in the affected matrix. If external infrastructure prevents completion, record the exact failing command and dependency instead of treating the change as verified.
 
+The scheduled publish workflow uses `detect-updates` first. Detection resolves upstream metadata and writes a cached fingerprint under `.update-state/`; it does not clone AUR, build, or publish. Manual runs with a package use `dispatch_policy=auto`, which selects that package even when the detector state is unchanged. Use `dispatch_policy=selected` only with a single package.
+
 The manager accepts either a bare package name like `my-package-name` or an explicit path like `packages/my-package-name`.
 
 Run `build-binary-release` before `run-publish`/`run-test` for self-built `-bin` packages when the expected GitHub release asset does not exist yet.

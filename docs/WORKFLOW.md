@@ -45,6 +45,7 @@ Some `-bin` packages use this repository as the binary-release producer before t
 | Entry point | Purpose |
 |---|---|
 | `scripts/ci_manager.sh discover` | Find all package directories that contain `package.conf` |
+| `scripts/ci_manager.sh detect-updates` | Resolve upstream state without AUR access and emit a targeted update matrix |
 | `scripts/ci_manager.sh discover-binary-releases` | Find packages with `BINARY_RELEASE_ENABLED=true` |
 | `scripts/ci_manager.sh build-binary-release <pkgname-or-path>` | Build and publish self-built binary-release assets for one package |
 | `scripts/ci_manager.sh preflight <pkgname-or-path>` | Resolve upstream metadata and asset selectors without building or publishing |
@@ -55,6 +56,8 @@ Some `-bin` packages use this repository as the binary-release producer before t
 | `.github/workflows/aur-publish.yml` | Scheduled/manual publish workflow |
 
 The older snake_case manager commands (`discover_binary_releases`, `build_binary_release`, `run_update`, and `run_test`) remain compatibility aliases. Prefer the kebab-case names in docs and workflows.
+
+Scheduled publishing starts with the update detector. Detector state is only an optimization: it records resolved upstream fingerprints so scheduled runs can avoid unnecessary AUR access, but the publish path still re-resolves upstream and compares against the live AUR repo before publishing.
 
 ## 4. Shared Package Pipeline
 

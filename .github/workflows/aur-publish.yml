@@ -14,10 +14,28 @@ on:
         required: false
         type: boolean
         default: false
+      cache_policy:
+        description: 'Detector cache policy'
+        required: false
+        type: choice
+        options:
+          - normal
+          - refresh
+        default: normal
+      dispatch_policy:
+        description: 'Package dispatch policy'
+        required: false
+        type: choice
+        options:
+          - auto
+          - changed-only
+          - selected
+        default: auto
 
 env:
   AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
   AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: aur-publish
@@ -37,16 +55,42 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Restore update detector state
+        uses: actions/cache/restore@v4
+        with:
+          path: .update-state
+          key: update-state-${{ github.run_id }}
+          restore-keys: |
+            update-state-
+
       - id: set-matrix
         env:
           MANUAL_PACKAGE: ${{ github.event.inputs.package || '' }}
+          CACHE_POLICY: ${{ github.event.inputs.cache_policy || 'normal' }}
+          DISPATCH_POLICY: ${{ github.event.inputs.dispatch_policy || 'auto' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           chmod +x scripts/ci_manager.sh
+          ARGS=(--cache-policy "$CACHE_POLICY" --dispatch-policy "$DISPATCH_POLICY")
           if [ -n "$MANUAL_PACKAGE" ]; then
-            ./scripts/ci_manager.sh discover --package "$MANUAL_PACKAGE"
-          else
-            ./scripts/ci_manager.sh discover
+            ARGS+=(--package "$MANUAL_PACKAGE")
+          elif [ "$DISPATCH_POLICY" = "selected" ]; then
+            echo "dispatch_policy=selected requires package" >&2
+            exit 1
           fi
+
+          ./scripts/ci_manager.sh detect-updates "${ARGS[@]}"
+
+      - name: Upload update detector state
+        if: steps.set-matrix.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-detector-state
+          path: .update-state
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
 
   # ----------------------------------------------------------------------------
   # Phase 2: Execution
@@ -97,3 +141,22 @@ jobs:
 
           # 5. Run publish path with package validation
           ./scripts/ci_manager.sh run-publish "${{ matrix.package }}" --verify-install "${ARGS[@]}"
+
+  save-detector-state:
+    needs:
+      - discovery
+      - update
+    runs-on: ubuntu-latest
+    if: always() && github.event.inputs.dry_run != 'true' && needs.discovery.result == 'success' && (needs.update.result == 'success' || needs.update.result == 'skipped')
+    steps:
+      - name: Download update detector state
+        uses: actions/download-artifact@v4
+        with:
+          name: update-detector-state
+          path: .update-state
+
+      - name: Save update detector state
+        uses: actions/cache/save@v4
+        with:
+          path: .update-state
+          key: update-state-${{ github.run_id }}
