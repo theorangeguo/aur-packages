@@ -1,0 +1,36 @@
+spec_version = 1
+name = "antigravity-tools-bin"
+template = "deb-repack"
+
+[metadata]
+desc = "Professional Antigravity Account Manager & Switcher"
+url = "https://github.com/lbjlaq/Antigravity-Manager"
+licenses = ["custom:CC-BY-NC-SA-4.0"]
+arches = ["x86_64"]
+depends = ["gtk3", "webkit2gtk-4.1", "libappindicator-gtk3", "openssl"]
+makedepends = []
+options = ["!strip"]
+provides = ["antigravity-tools"]
+conflicts = ["antigravity-tools"]
+
+[upstream]
+type = "github-release-assets"
+repo = "lbjlaq/Antigravity-Manager"
+tag_prefix = "v"
+
+[upstream.assets.x86_64]
+selector = '''^Antigravity\.Tools_.*_amd64\.deb$'''
+source_rename = '''${pkgname}-${pkgver}-x86_64.deb'''
+
+[build]
+deb_relocate_usr_local = true
+
+[files]
+local = ["files/LICENSE"]
+licenses = ["LICENSE"]
+
+[install]
+mode = "none"
+
+[service]
+mode = "none"

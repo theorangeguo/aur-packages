@@ -227,12 +227,43 @@ validate_relative_source_pattern() {
     esac
 }
 
+validate_binary_release_archive_file() {
+    local archive_spec=$1
+    local source_path
+    local remainder
+    local destination_path
+    local file_mode
+
+    case "$archive_spec" in
+        *:*) ;;
+        *) die "BINARY_RELEASE_ARCHIVE_FILES entry must be source:destination[:mode] in ${PACKAGE_DEFINITION_PATH}: ${archive_spec}" ;;
+    esac
+
+    source_path=${archive_spec%%:*}
+    remainder=${archive_spec#*:}
+    destination_path=${remainder%%:*}
+    if [ "$remainder" = "$destination_path" ]; then
+        file_mode=644
+    else
+        file_mode=${remainder#*:}
+        case "$file_mode" in
+            *:*) die "BINARY_RELEASE_ARCHIVE_FILES mode must not contain ':' in ${PACKAGE_DEFINITION_PATH}: ${archive_spec}" ;;
+        esac
+    fi
+
+    [ -n "$source_path" ] || die "BINARY_RELEASE_ARCHIVE_FILES source is required in ${PACKAGE_DEFINITION_PATH}: ${archive_spec}"
+    [ -n "$destination_path" ] || die "BINARY_RELEASE_ARCHIVE_FILES destination is required in ${PACKAGE_DEFINITION_PATH}: ${archive_spec}"
+    validate_relative_source_pattern "BINARY_RELEASE_ARCHIVE_FILES source" "$source_path"
+    validate_relative_source_pattern "BINARY_RELEASE_ARCHIVE_FILES destination" "$destination_path"
+    [[ "$file_mode" =~ ^[0-7]{3,4}$ ]] || die "BINARY_RELEASE_ARCHIVE_FILES mode must be octal in ${PACKAGE_DEFINITION_PATH}: ${archive_spec}"
+}
+
 validate_package_spec() {
     local config_path=$PACKAGE_DEFINITION_PATH
 
-    [ -n "$PACKAGE_SPEC_VERSION" ] || die "PACKAGE_SPEC_VERSION=${PACKAGE_SPEC_SUPPORTED_VERSION} is required in ${config_path}"
-    [ "$PACKAGE_SPEC_VERSION" = "$PACKAGE_SPEC_SUPPORTED_VERSION" ] || die "Unsupported PACKAGE_SPEC_VERSION in ${config_path}: ${PACKAGE_SPEC_VERSION}"
-    [ -n "$PKGNAME" ] || die "PKGNAME is required in ${config_path}"
+    [ -n "$PACKAGE_SPEC_VERSION" ] || die "spec_version = ${PACKAGE_SPEC_SUPPORTED_VERSION} is required in ${config_path}"
+    [ "$PACKAGE_SPEC_VERSION" = "$PACKAGE_SPEC_SUPPORTED_VERSION" ] || die "Unsupported spec_version in ${config_path}: ${PACKAGE_SPEC_VERSION}"
+    [ -n "$PKGNAME" ] || die "name is required in ${config_path}"
     validate_package_name_value "$PKGNAME" "PKGNAME"
     [ "$PKGNAME" = "$PACKAGE_NAME" ] || die "Package directory must match PKGNAME: ${PACKAGE_NAME} != ${PKGNAME}"
     [ -n "$PACKAGE_TEMPLATE" ] || die "PACKAGE_TEMPLATE is required in ${config_path}"
@@ -334,6 +365,11 @@ validate_package_spec() {
             binary_release_suffix=$(arch_var_suffix "$binary_release_arch")
             local binary_release_asset_var="BINARY_RELEASE_ASSET_${binary_release_suffix}"
             [ -n "${!binary_release_asset_var}" ] || die "${binary_release_asset_var} is required when BINARY_RELEASE_ENABLED=true"
+        done
+
+        local binary_release_archive_file
+        for binary_release_archive_file in "${BINARY_RELEASE_ARCHIVE_FILES[@]}"; do
+            validate_binary_release_archive_file "$binary_release_archive_file"
         done
     fi
 
@@ -445,19 +481,20 @@ validate_package_spec() {
 load_package_spec() {
     local package_dir=$1
     local config_path
+    local spec_assignments
 
     config_path=$(package_definition_path "$package_dir") || die "PackageSpec definition not found in ${package_dir}"
-    validate_package_spec_data_only "$config_path" || die "PackageSpec must contain declarative assignments only: ${config_path}"
 
     reset_package_spec_state
 
     PACKAGE_DIR=$(realpath "$package_dir")
     PACKAGE_NAME=$(basename "$PACKAGE_DIR")
     PACKAGE_DEFINITION_PATH=$(realpath "$config_path")
-    PACKAGE_SPEC_FORMAT=package.conf
+    PACKAGE_SPEC_FORMAT=package.toml
 
-    # shellcheck disable=SC1090
-    source "$PACKAGE_DEFINITION_PATH"
+    spec_assignments=$(package_spec_shell_assignments "$PACKAGE_DEFINITION_PATH") \
+        || die "Failed to parse PackageSpec: ${PACKAGE_DEFINITION_PATH}"
+    eval "$spec_assignments"
 
     normalize_package_spec_arrays
     validate_package_spec
@@ -469,9 +506,16 @@ load_package_config() {
 
 load_package_hooks() {
     local hooks_path="${PACKAGE_DIR}/hooks.sh"
+    local package_state_before
+    local package_state_after
 
     if [ -f "$hooks_path" ]; then
+        package_state_before=$(package_spec_definition_state_digest)
         # shellcheck disable=SC1090
         source "$hooks_path"
+        package_state_after=$(package_spec_definition_state_digest)
+
+        [ "$package_state_before" = "$package_state_after" ] \
+            || die "hooks.sh must not mutate PackageSpec fields while loading; use resolve_upstream_state() outputs"
     fi
 }

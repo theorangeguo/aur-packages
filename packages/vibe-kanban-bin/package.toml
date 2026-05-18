@@ -1,0 +1,38 @@
+spec_version = 1
+name = "vibe-kanban-bin"
+template = "binary-archive"
+
+[metadata]
+desc = "AI-powered Kanban board"
+url = "https://vibekanban.com"
+licenses = ["Proprietary"]
+arches = ["x86_64"]
+depends = []
+makedepends = ["unzip"]
+options = ["!strip"]
+provides = ["vibe-kanban"]
+conflicts = ["vibe-kanban"]
+
+[upstream]
+type = "custom-hook"
+
+[upstream.assets.x86_64]
+source_rename = '''${pkgname}-${pkgver}-x86_64.zip'''
+
+[state]
+persist = ["BINARY_TAG"]
+
+[package]
+binary_name = "vibe-kanban"
+binary_source_path = "vibe-kanban"
+install_bin_path = "/usr/bin/vibe-kanban"
+
+[install]
+mode = "static"
+file = "files/vibe-kanban-bin.install"
+
+[service]
+mode = "static"
+scope = "user"
+name = "vibe-kanban.service"
+file = "files/vibe-kanban.service"

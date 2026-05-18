@@ -19,7 +19,7 @@ This repository contains my maintained Arch User Repository (AUR) packages. The 
 
 The system uses a centralized manager script [`scripts/ci_manager.sh`](scripts/ci_manager.sh) to handle the entire lifecycle:
 
-1.  **Discovery**: Automatically scans the repository for PackageSpec v1 definitions (`package.conf` files).
+1.  **Discovery**: Automatically scans the repository for PackageSpec v1 definitions (`package.toml` files).
 2.  **Resolve**: Fetches upstream versions and asset URLs.
 3.  **Render**: Generates a temporary `PKGBUILD`, optional `.install`, and other packaging assets.
 4.  **Build**: Verifies the package builds successfully in a clean environment.
@@ -77,7 +77,7 @@ This path uses an ephemeral Arch container locally, builds the package, installs
 Please refer to [CONTRIBUTING.md](docs/CONTRIBUTING.md) for the standard process of adding and maintaining packages.
 
 Each package directory now lives under `packages/<pkgname>/` and keeps only:
-- `package.conf` as the PackageSpec v1 source of truth
+- `package.toml` as the PackageSpec v1 source of truth
 - optional `hooks.sh` for special upstream logic
 - optional `files/` for static assets such as service units or licenses
 

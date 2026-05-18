@@ -354,7 +354,7 @@ case "$COMMAND" in
         if [ -f /etc/arch-release ]; then
             require_root install
             initialize_ci_pacman_keyring
-            retry_command 3 pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq \
+            retry_command 3 pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python \
                 || die "Failed to install required Arch packages"
         else
             log "Not an Arch system. Skipping pacman install. Ensure dependencies are met manually."
