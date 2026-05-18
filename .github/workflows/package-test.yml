@@ -20,7 +20,7 @@ jobs:
 
       - name: Check framework boundaries
         run: |
-          python3 scripts/aurpkg.py check-framework-boundaries
+          scripts/ci.sh package-test-boundary
 
   discovery:
     needs: framework-boundary
@@ -42,15 +42,7 @@ jobs:
           PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
           PUSH_SHA: ${{ github.sha }}
         run: |
-          ARGS=()
-          if [ -n "$MANUAL_PACKAGE" ]; then
-            ARGS+=(--package "$MANUAL_PACKAGE")
-          elif [ "$EVENT_NAME" = "pull_request" ] && [ -n "$PR_BASE_SHA" ] && [ -n "$PR_COMPARE_SHA" ]; then
-            ARGS+=(--base-ref "$PR_BASE_SHA" --head-ref "$PR_COMPARE_SHA")
-          elif [ "$EVENT_NAME" = "push" ] && [ -n "$PUSH_BEFORE_SHA" ] && [ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            ARGS+=(--base-ref "$PUSH_BEFORE_SHA" --head-ref "$PUSH_SHA")
-          fi
-          python3 scripts/aurpkg.py discover "${ARGS[@]}"
+          scripts/ci.sh package-test-discover
 
   test:
     needs: discovery
@@ -71,7 +63,4 @@ jobs:
           CI: true
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          pacman-key --init >/dev/null 2>&1
-          pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python
-          python3 scripts/aurpkg.py setup-user
-          python3 scripts/aurpkg.py run-test "${{ matrix.package }}"
+          scripts/ci.sh package-test-run "${{ matrix.package }}"

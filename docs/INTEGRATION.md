@@ -44,12 +44,12 @@ packages/
 
 ## 3. How It Works
 
-The workflows in `.github/workflows/aur-publish.yml`, `.github/workflows/package-test.yml`, and `.github/workflows/build-binary-releases.yml` delegate all package logic to `scripts/aurpkg.py`.
+The workflows in `.github/workflows/aur-publish.yml`, `.github/workflows/package-test.yml`, and `.github/workflows/build-binary-releases.yml` delegate CI bootstrap and event/env argument wiring to `scripts/ci.sh`. That CI entrypoint delegates package framework behavior to `scripts/aurpkg.py`.
 
-The validation workflow reuses the same discovery matrix, but runs `python3 scripts/aurpkg.py run-test <pkgname-or-path>` instead of publishing. The publish workflow uses the same package validation path before it stages and pushes updates to AUR.
+The validation workflow reuses the same discovery matrix, but runs `scripts/ci.sh package-test-run <pkgname-or-path>` instead of publishing. The publish workflow uses the same package validation path before it stages and pushes updates to AUR.
 
 ### Phase 1: Discovery
-- **Command**: `python3 scripts/aurpkg.py discover`
+- **Command**: `scripts/ci.sh package-test-discover` for validation, `scripts/ci.sh aur-publish-discover` for AUR publish, or `scripts/ci.sh binary-release-discover` for binary releases
 - **Action**: scans for directories containing PackageSpec v1 `package.toml`
 - **Output**: GitHub Actions matrix JSON
 
@@ -95,7 +95,7 @@ When the CLI is invoked as root, package builds still run as the non-root `build
 
 ## 5. Security Measures
 
-The scripts enforce:
+The CI entrypoint and package framework enforce:
 - input sanitization for package paths
 - non-root builds via the `builder` user
 - temporary SSH key handling during push with AUR host fingerprint verification

@@ -14,6 +14,7 @@
 - `.github/workflows/aur-publish.yml`
 - `.github/workflows/package-test.yml`
 - `.github/workflows/build-binary-releases.yml`
+- `scripts/ci.sh`
 - `scripts/aurpkg.py`
 
 ## Repository facts and local rules
@@ -28,8 +29,9 @@
 ## Repository workflow
 - Main flow: discover packages -> detect upstream changes -> read AUR state -> resolve upstream -> render temporary `PKGBUILD` -> refresh checksums -> generate `.SRCINFO` -> build -> publish to AUR.
 - Validation flow: discover packages -> resolve upstream -> render temporary `PKGBUILD` -> build -> install package in a container -> run smoke checks.
-- Main entrypoints: `python3 scripts/aurpkg.py discover`, `python3 scripts/aurpkg.py detect-updates`, `python3 scripts/aurpkg.py preflight <pkgname-or-path>`, `python3 scripts/aurpkg.py run-publish <pkgname-or-path> ...`, `python3 scripts/aurpkg.py run-test <pkgname-or-path>`, `python3 scripts/aurpkg.py build-binary-release <pkgname-or-path> ...`
-- `scripts/aurpkg.py` owns the framework implementation and is the only repository script entrypoint.
+- CI entrypoint: `scripts/ci.sh package-test-*`, `scripts/ci.sh aur-publish-*`, and `scripts/ci.sh binary-release-*` keep workflow YAML thin and handle CI bootstrap/argument wiring.
+- Framework entrypoint: `python3 scripts/aurpkg.py discover`, `python3 scripts/aurpkg.py detect-updates`, `python3 scripts/aurpkg.py preflight <pkgname-or-path>`, `python3 scripts/aurpkg.py run-publish <pkgname-or-path> ...`, `python3 scripts/aurpkg.py run-test <pkgname-or-path>`, `python3 scripts/aurpkg.py build-binary-release <pkgname-or-path> ...`
+- `scripts/aurpkg.py` owns package framework behavior; `scripts/ci.sh` owns GitHub Actions orchestration only.
 - When touching update logic, inspect `scripts/aurpkg.py` and any package-local `hooks.sh`.
 
 ## Framework contract rules
@@ -137,7 +139,7 @@ python3 scripts/aurpkg.py run-test <pkgname-or-path>
 
 ### Naming, types, and data shapes
 - Package directories should be kebab-case and match PackageSpec `name`; versioned library package names may include dots when that matches Arch convention.
-- Use kebab-case `aurpkg.py` command names in docs and workflows.
+- Use kebab-case `aurpkg.py` and `ci.sh` command names in docs and workflows.
 - Use consistent user-facing terms: package validation, smoke checks, publish path, and binary-release asset.
 - Common dynamic state variables use `RESOLVED_*` and `STATE_*` prefixes.
 - This repo is Python-first internally, but package-local hooks use Bash subprocesses with whitelisted outputs.
