@@ -164,6 +164,7 @@ package_definition_digest() {
 
 package_framework_digest() {
     local files=(
+        "${SCRIPT_DIR}/aurpkg.py"
         "${SCRIPT_DIR}/auto_update.sh"
         "${SCRIPT_DIR}/test_package.sh"
     )

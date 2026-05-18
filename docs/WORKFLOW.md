@@ -71,6 +71,8 @@ flowchart LR
 
 The older snake_case manager commands (`discover_binary_releases`, `build_binary_release`, `run_update`, and `run_test`) remain compatibility aliases. Prefer the kebab-case names in docs and workflows.
 
+Low-risk framework operations such as PackageSpec validation, package discovery, binary-release discovery, and framework-boundary checks are implemented in the single-file Python CLI `scripts/aurpkg.py`. `scripts/ci_manager.sh` remains the stable user/CI entrypoint while the framework is gradually migrated out of Bash.
+
 Scheduled publishing starts with the update detector. Detector state is only an optimization: it records resolved upstream fingerprints so scheduled runs can avoid unnecessary AUR access, but the publish path still re-resolves upstream and compares against the live AUR repo before publishing.
 
 ## 4. Shared Package Pipeline

@@ -332,7 +332,7 @@ EOF
 
 case "$COMMAND" in
     discover)
-        run_discovery "$@"
+        python3 "${SCRIPT_DIR}/aurpkg.py" discover "$@"
         ;;
 
     detect-updates)
@@ -341,12 +341,11 @@ case "$COMMAND" in
         ;;
 
     discover_binary_releases|discover-binary-releases)
-        run_binary_release_discovery "$@"
+        python3 "${SCRIPT_DIR}/aurpkg.py" discover-binary-releases "$@"
         ;;
 
     check_framework_boundaries|check-framework-boundaries)
-        chmod +x scripts/check_framework_boundaries.sh
-        ./scripts/check_framework_boundaries.sh
+        python3 "${SCRIPT_DIR}/aurpkg.py" check-framework-boundaries "$@"
         ;;
 
     install)
