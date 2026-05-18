@@ -16,9 +16,9 @@
 - `.github/workflows/build-binary-releases.yml`
 - `scripts/ci_manager.sh`
 - `scripts/aurpkg.py`
-- `scripts/auto_update.sh`
-- `scripts/test_package.sh`
-- `scripts/lib/`
+- `scripts/auto_update.sh` (compatibility wrapper)
+- `scripts/test_package.sh` (compatibility wrapper)
+- `scripts/lib/` (compatibility placeholders)
 
 ## Repository facts and local rules
 - No Cursor rules were found in `.cursor/rules/` or `.cursorrules`.
@@ -33,7 +33,8 @@
 - Main flow: discover packages -> detect upstream changes -> read AUR state -> resolve upstream -> render temporary `PKGBUILD` -> refresh checksums -> generate `.SRCINFO` -> build -> publish to AUR.
 - Validation flow: discover packages -> resolve upstream -> render temporary `PKGBUILD` -> build -> install package in a container -> run smoke checks.
 - Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh detect-updates`, `scripts/ci_manager.sh preflight <pkgname-or-path>`, `scripts/ci_manager.sh run-publish <pkgname-or-path> ...`, `scripts/ci_manager.sh run-test <pkgname-or-path>`, `scripts/ci_manager.sh build-binary-release <pkgname-or-path> ...`, `scripts/auto_update.sh <pkgname-or-path> ...`, `scripts/test_package.sh <pkgname-or-path>`
-- When touching update logic, inspect `scripts/auto_update.sh`, the relevant files under `scripts/lib/`, and any package-local `hooks.sh`.
+- `scripts/aurpkg.py` owns the framework implementation; shell scripts under `scripts/` are compatibility wrappers/placeholders.
+- When touching update logic, inspect `scripts/aurpkg.py` and any package-local `hooks.sh`.
 
 ## Framework contract rules
 - Treat package definitions as a stable contract. `package.toml` is the current PackageSpec v1 frontend: strict TOML declarative data plus explicit extension points, not a programming language.

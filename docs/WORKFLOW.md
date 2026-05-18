@@ -71,13 +71,13 @@ flowchart LR
 
 The older snake_case manager commands (`discover_binary_releases`, `build_binary_release`, `run_update`, and `run_test`) remain compatibility aliases. Prefer the kebab-case names in docs and workflows.
 
-Low-risk framework operations such as PackageSpec validation, package discovery, binary-release discovery, and framework-boundary checks are implemented in the single-file Python CLI `scripts/aurpkg.py`. `scripts/ci_manager.sh` remains the stable user/CI entrypoint while the framework is gradually migrated out of Bash.
+The framework implementation lives in the single-file Python CLI `scripts/aurpkg.py`. `scripts/ci_manager.sh` remains the stable user/CI entrypoint, while the older shell entrypoints are compatibility wrappers that dispatch into `aurpkg.py`.
 
 Scheduled publishing starts with the update detector. Detector state is only an optimization: it records resolved upstream fingerprints so scheduled runs can avoid unnecessary AUR access, but the publish path still re-resolves upstream and compares against the live AUR repo before publishing.
 
 ## 4. Shared Package Pipeline
 
-The shared build and smoke-check logic lives in `scripts/lib/package_pipeline.sh`.
+The shared build and smoke-check logic lives in `scripts/aurpkg.py`.
 
 It is responsible for:
 
@@ -88,9 +88,9 @@ It is responsible for:
 5. installing built packages with `pacman -U`
 6. running template-driven smoke checks
 
-Both validation and publish now call that same pipeline.
+Both validation and publish call that same Python pipeline.
 
-The binary-release producer is separate from the AUR package pipeline. Its shared logic lives in `scripts/build_binary_release.sh`, `scripts/lib/binary_release.sh`, and `scripts/lib/binary_release_source_cargo.sh`. This keeps package-specific binary-release asset recipes declarative in `package.toml` rather than in package-specific workflow YAML.
+The binary-release producer is separate from the AUR package pipeline, but it is implemented in the same `scripts/aurpkg.py` CLI. This keeps package-specific binary-release asset recipes declarative in `package.toml` rather than in package-specific workflow YAML.
 
 For validation, discovery is change-aware:
 
@@ -105,11 +105,8 @@ flowchart TD
     A[package-test.yml] --> B[scripts/ci_manager.sh run-test]
     C[aur-publish.yml] --> D[scripts/ci_manager.sh run-publish --verify-install]
 
-    B --> E[scripts/test_package.sh]
-    D --> F[scripts/auto_update.sh]
-
-    E --> G[scripts/lib/package_pipeline.sh]
-    F --> G
+    B --> G[scripts/aurpkg.py package pipeline]
+    D --> G
 
     G --> H[resolve]
     H --> I[render]
