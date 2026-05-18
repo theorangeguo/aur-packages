@@ -4,7 +4,7 @@ PACKAGE_SPEC_SUPPORTED_VERSION=1
 PACKAGE_SPEC_FILENAME=package.toml
 
 PACKAGE_DEFINITION_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PACKAGE_SPEC_TOML_PARSER="${PACKAGE_DEFINITION_LIB_DIR}/package_spec_toml.py"
+PACKAGE_SPEC_TOML_PARSER="$(cd "${PACKAGE_DEFINITION_LIB_DIR}/.." && pwd)/aurpkg.py"
 
 package_spec_toml() {
     local command=$1

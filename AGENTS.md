@@ -15,6 +15,7 @@
 - `.github/workflows/package-test.yml`
 - `.github/workflows/build-binary-releases.yml`
 - `scripts/ci_manager.sh`
+- `scripts/aurpkg.py`
 - `scripts/auto_update.sh`
 - `scripts/test_package.sh`
 - `scripts/lib/`

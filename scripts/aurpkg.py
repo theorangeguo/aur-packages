@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Parse PackageSpec v1 TOML and emit the normalized Bash model.
+"""Single-file PackageSpec CLI bootstrap.
 
-This script is intentionally narrow: TOML is only a frontend. The existing
-Bash pipeline remains the execution engine, and this parser emits the same
-normalized variables that renderers/resolvers already consume.
+This starts as one Python file on purpose: it keeps the AI-editable surface
+compact while preserving internal section boundaries that can be split into a
+package later. The existing Bash pipeline remains the execution engine for the
+high-risk build/publish path; low-risk discovery and validation commands live
+here first.
 """
 
 from __future__ import annotations
 
 import re
 import shlex
+import json
+import os
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -19,6 +24,11 @@ from typing import Any
 SUPPORTED_SPEC_VERSION = 1
 VALID_ARCH_RE = re.compile(r"^[A-Za-z0-9_+-]+$")
 VALID_ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+VALID_PACKAGE_INPUT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+VALID_PACKAGE_PATH_INPUT_RE = re.compile(r"^packages/[A-Za-z0-9._-]+$")
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+PACKAGE_ROOT = REPO_ROOT / "packages"
 
 ROOT_KEYS = {
     "spec_version",
@@ -117,6 +127,10 @@ BINARY_RELEASE_ASSET_KEYS = {"name"}
 
 
 class SpecError(Exception):
+    pass
+
+
+class CliError(Exception):
     pass
 
 
@@ -559,22 +573,281 @@ def emit_shell(data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def package_definition_path(package_dir: Path) -> Path | None:
+    spec_candidate = package_dir / "package.toml"
+    legacy_candidate = package_dir / "package.conf"
+
+    if spec_candidate.is_file() and legacy_candidate.is_file():
+        raise CliError(f"Package directory must not contain both package.toml and package.conf: {package_dir}")
+    if spec_candidate.is_file():
+        return spec_candidate
+    return None
+
+
+def package_has_definition(package_dir: Path) -> bool:
+    return package_definition_path(package_dir) is not None
+
+
+def package_path_for_output(path: Path) -> str:
+    return path.relative_to(REPO_ROOT).as_posix()
+
+
+def discover_package_definition_files(package_root: Path = PACKAGE_ROOT) -> list[Path]:
+    if not package_root.is_dir():
+        return []
+    return sorted(package_root.glob("*/package.toml"))
+
+
+def collect_all_packages() -> list[str]:
+    return [package_path_for_output(path.parent) for path in discover_package_definition_files()]
+
+
+def canonical_package_dir(package_input: str) -> str:
+    value = package_input.removeprefix("./")
+    if value.startswith("packages/"):
+        if not VALID_PACKAGE_PATH_INPUT_RE.fullmatch(value):
+            raise CliError(f"Invalid package directory name: {package_input}")
+        candidate = REPO_ROOT / value
+    else:
+        if not VALID_PACKAGE_INPUT_RE.fullmatch(value):
+            raise CliError(f"Invalid package directory name: {package_input}")
+        candidate = PACKAGE_ROOT / value
+
+    if package_definition_path(candidate) is None:
+        raise CliError(f"PackageSpec definition not found in {package_path_for_output(candidate)}")
+    return package_path_for_output(candidate)
+
+
+def git_diff_changed_files(base_ref: str, head_ref: str) -> list[str]:
+    for ref, role in ((base_ref, "base"), (head_ref, "head")):
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise CliError(f"Unknown discovery {role} ref: {ref}")
+
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--diff-filter=ACMR", base_ref, head_ref],
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise CliError(f"Failed to diff changed files between {base_ref} and {head_ref}: {result.stderr.strip()}")
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def discover_changed_packages(base_ref: str, head_ref: str) -> list[str]:
+    packages: list[str] = []
+    seen: set[str] = set()
+
+    for changed_file in git_diff_changed_files(base_ref, head_ref):
+        if changed_file.startswith("scripts/") or changed_file.startswith(".github/workflows/"):
+            return collect_all_packages()
+
+        parts = changed_file.split("/")
+        if len(parts) < 3 or parts[0] != "packages":
+            continue
+
+        candidate = f"packages/{parts[1]}"
+        if candidate in seen:
+            continue
+        if package_has_definition(REPO_ROOT / candidate):
+            seen.add(candidate)
+            packages.append(candidate)
+
+    return packages
+
+
+def parse_discovery_args(command: str, args: list[str]) -> tuple[str | None, str | None, str | None]:
+    package_filter: str | None = None
+    base_ref: str | None = None
+    head_ref: str | None = None
+    index = 0
+
+    while index < len(args):
+        arg = args[index]
+        if arg == "--package":
+            index += 1
+            if index >= len(args):
+                raise CliError("Missing value for --package")
+            package_filter = args[index]
+        elif arg == "--base-ref":
+            index += 1
+            if index >= len(args):
+                raise CliError("Missing value for --base-ref")
+            base_ref = args[index]
+        elif arg == "--head-ref":
+            index += 1
+            if index >= len(args):
+                raise CliError("Missing value for --head-ref")
+            head_ref = args[index]
+        else:
+            raise CliError(f"Unknown {command} parameter: {arg}")
+        index += 1
+
+    if bool(base_ref) != bool(head_ref):
+        raise CliError("--base-ref and --head-ref must be provided together")
+
+    return package_filter, base_ref, head_ref
+
+
+def selected_packages(command: str, args: list[str]) -> list[str]:
+    package_filter, base_ref, head_ref = parse_discovery_args(command, args)
+    if package_filter:
+        return [canonical_package_dir(package_filter)]
+    if base_ref and head_ref:
+        return discover_changed_packages(base_ref, head_ref)
+    return collect_all_packages()
+
+
+def package_has_binary_release_enabled(package: str) -> bool:
+    spec_path = package_definition_path(REPO_ROOT / package)
+    if spec_path is None:
+        raise CliError(f"PackageSpec definition not found in {package}")
+    data = load_spec(str(spec_path))
+    return bool(data.get("binary_release", {}).get("enabled", False))
+
+
+def emit_package_matrix(packages: list[str], label: str) -> None:
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if not github_output:
+        if packages:
+            print("\n".join(packages))
+        return
+
+    matrix_json = json.dumps({"package": packages}, separators=(",", ":"))
+    with open(github_output, "a", encoding="utf-8") as handle:
+        handle.write(f"matrix={matrix_json}\n")
+        handle.write(f"has_packages={'true' if packages else 'false'}\n")
+    print(f"==> [aurpkg] Discovered {len(packages)} {label}: {json.dumps(packages)}")
+
+
+def command_discover(args: list[str]) -> int:
+    packages = selected_packages("discover", args)
+    emit_package_matrix(packages, "packages")
+    return 0
+
+
+def command_discover_binary_releases(args: list[str]) -> int:
+    packages = [package for package in selected_packages("discover-binary-releases", args) if package_has_binary_release_enabled(package)]
+    emit_package_matrix(packages, "binary release packages")
+    return 0
+
+
+def regex_escape(value: str) -> str:
+    return re.escape(value)
+
+
+def collect_package_names() -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for definition_path in discover_package_definition_files():
+        for name in (definition_path.parent.name, load_spec(str(definition_path))["name"]):
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+    return names
+
+
+def shared_automation_files() -> list[Path]:
+    roots = [REPO_ROOT / "scripts", REPO_ROOT / ".github" / "workflows"]
+    suffixes = {".sh", ".py", ".yml", ".yaml"}
+    files: list[Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix in suffixes:
+                files.append(path)
+    return sorted(files)
+
+
+def command_check_framework_boundaries(args: list[str]) -> int:
+    if args:
+        raise CliError(f"Unknown check-framework-boundaries parameter: {args[0]}")
+
+    failures: list[str] = []
+    package_names = collect_package_names()
+    shared_files = shared_automation_files()
+
+    for definition_path in discover_package_definition_files():
+        load_spec(str(definition_path))
+
+    for package_name in package_names:
+        package_name_pattern = re.compile(rf"(^|[^A-Za-z0-9._-]){regex_escape(package_name)}([^A-Za-z0-9._-]|$)")
+        for path in shared_files:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                if package_name_pattern.search(line):
+                    rel = path.relative_to(REPO_ROOT).as_posix()
+                    failures.append(f"Package-specific name '{package_name}' found in shared automation: {rel}:{line_number}:{line}")
+
+    branch_patterns = [
+        re.compile(r'''case\s+["']?\$\{?PKGNAME\}?'''),
+        re.compile(r'''if\s+.*\$\{?PKGNAME\}?.*(=|==|!=)\s*["']?[A-Za-z0-9._+-]+'''),
+    ]
+    for path in shared_files:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if any(pattern.search(line) for pattern in branch_patterns):
+                rel = path.relative_to(REPO_ROOT).as_posix()
+                failures.append(f"Potential package-name branching found in shared automation: {rel}:{line_number}:{line}")
+
+    if failures:
+        for failure in failures:
+            print(f"!! ERROR: {failure}", file=sys.stderr)
+        print(
+            "\nShared automation must stay package-agnostic.\n"
+            "Move package-specific behavior into PackageSpec v1 package.toml, package-local hooks.sh, package-local files/, or a new generic framework feature.\n"
+            "See docs/PACKAGE_FRAMEWORK.md.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("Framework boundary check passed.")
+    return 0
+
+
+def command_spec_compat(command: str, args: list[str]) -> int:
+    if len(args) != 1:
+        print("Usage: aurpkg.py <validate|name|shell> <package.toml>", file=sys.stderr)
+        return 2
+    data = load_spec(args[0])
+    if command == "validate":
+        return 0
+    if command == "name":
+        print(data["name"], end="")
+        return 0
+    print(emit_shell(data), end="")
+    return 0
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 3 or argv[1] not in {"validate", "name", "shell"}:
-        print("Usage: package_spec_toml.py <validate|name|shell> <package.toml>", file=sys.stderr)
+    if len(argv) < 2:
+        print("Usage: aurpkg.py <command> [args]", file=sys.stderr)
         return 2
 
+    command = argv[1]
+    args = argv[2:]
     try:
-        data = load_spec(argv[2])
-        command = argv[1]
-        if command == "validate":
-            return 0
-        if command == "name":
-            print(data["name"], end="")
-            return 0
-        print(emit_shell(data), end="")
-        return 0
-    except SpecError as exc:
+        if command in {"validate", "name", "shell"}:
+            return command_spec_compat(command, args)
+        if command == "discover":
+            return command_discover(args)
+        if command in {"discover-binary-releases", "discover_binary_releases"}:
+            return command_discover_binary_releases(args)
+        if command in {"check-framework-boundaries", "check_framework_boundaries"}:
+            return command_check_framework_boundaries(args)
+        print(f"Unknown command: {command}", file=sys.stderr)
+        return 2
+    except (SpecError, CliError) as exc:
         print(exc, file=sys.stderr)
         return 1
 
