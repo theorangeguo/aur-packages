@@ -71,7 +71,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          chmod +x scripts/ci_manager.sh
           ARGS=(--cache-policy "$CACHE_POLICY" --dispatch-policy "$DISPATCH_POLICY")
           if [ -n "$MANUAL_PACKAGE" ]; then
             ARGS+=(--package "$MANUAL_PACKAGE")
@@ -80,7 +79,7 @@ jobs:
             exit 1
           fi
 
-          ./scripts/ci_manager.sh detect-updates "${ARGS[@]}"
+          python3 scripts/aurpkg.py detect-updates "${ARGS[@]}"
 
       - name: Upload update detector state
         if: steps.set-matrix.outcome == 'success'
@@ -124,23 +123,22 @@ jobs:
           CI: true
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          chmod +x scripts/ci_manager.sh
-
           # 1. Install System Dependencies
-          ./scripts/ci_manager.sh install
+          pacman-key --init >/dev/null 2>&1
+          pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python
 
           # 2. Fast metadata/asset preflight
-          ./scripts/ci_manager.sh preflight "${{ matrix.package }}"
+          python3 scripts/aurpkg.py preflight "${{ matrix.package }}"
 
           # 3. Setup Build User
-          ./scripts/ci_manager.sh setup-user
+          python3 scripts/aurpkg.py setup-user
 
           # 4. Construct Arguments
           ARGS=()
           if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then ARGS+=(--dry-run); fi
 
           # 5. Run publish path with package validation
-          ./scripts/ci_manager.sh run-publish "${{ matrix.package }}" --verify-install "${ARGS[@]}"
+          python3 scripts/aurpkg.py run-publish "${{ matrix.package }}" --verify-install "${ARGS[@]}"
 
   save-detector-state:
     needs:

@@ -53,7 +53,6 @@ jobs:
           PUSH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          chmod +x scripts/ci_manager.sh
 
           if [ -n "$MANUAL_UPSTREAM_VERSION" ] && [ -z "$MANUAL_PACKAGE" ]; then
             echo "workflow_dispatch upstream_version requires package" >&2
@@ -67,7 +66,7 @@ jobs:
             ARGS+=(--base-ref "$PUSH_BEFORE_SHA" --head-ref "$PUSH_SHA")
           fi
 
-          ./scripts/ci_manager.sh discover-binary-releases "${ARGS[@]}"
+          python3 scripts/aurpkg.py discover-binary-releases "${ARGS[@]}"
 
   build:
     needs: discovery
@@ -88,7 +87,6 @@ jobs:
           FORCE_REBUILD: ${{ github.event.inputs.force || 'false' }}
         run: |
           set -euo pipefail
-          chmod +x scripts/ci_manager.sh scripts/build_binary_release.sh
 
           ARGS=()
           if [ -n "$MANUAL_UPSTREAM_VERSION" ]; then
@@ -98,4 +96,4 @@ jobs:
             ARGS+=(--force)
           fi
 
-          ./scripts/ci_manager.sh build-binary-release "${{ matrix.package }}" "${ARGS[@]}"
+          python3 scripts/aurpkg.py build-binary-release "${{ matrix.package }}" "${ARGS[@]}"
