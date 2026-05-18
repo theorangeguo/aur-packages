@@ -65,7 +65,7 @@ main() {
 
     cd "$REPO_ROOT"
     PKG_DIR=$(resolve_package_dir_input "$PKG_DIR")
-    load_package_config "$PKG_DIR"
+    load_package_spec "$PKG_DIR"
     load_package_hooks
 
     [ "$BINARY_RELEASE_ENABLED" = true ] || die "BINARY_RELEASE_ENABLED=true is required for ${PKGNAME}"

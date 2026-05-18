@@ -1,6 +1,6 @@
 # Workflow Architecture
 
-This document explains how this repository turns `package.conf`-based package definitions into tested AUR updates.
+This document explains how this repository turns PackageSpec v1 `package.conf` definitions into tested AUR updates.
 
 ## 1. Source of Truth
 
@@ -8,7 +8,7 @@ Each package directory keeps only the declarative inputs:
 
 - package directories live under `packages/<pkgname>/`
 
-- `package.conf` — required package source of truth
+- `package.conf` — required PackageSpec v1 source of truth
 - `hooks.sh` — optional upstream-resolution overrides
 - `files/` — optional static assets copied into the temporary workspace
 
@@ -26,7 +26,7 @@ For AUR metadata, `url` remains the upstream project URL. There is no second str
 
 ```mermaid
 flowchart TD
-    A[package.conf / hooks.sh / files/] --> B[discover package]
+    A[PackageSpec v1 package.conf / hooks.sh / files/] --> B[discover package]
     B --> C[resolve upstream version and source URLs]
     C --> D[render temporary workspace]
     D --> E[generate PKGBUILD / .SRCINFO / optional .install]
@@ -44,7 +44,7 @@ Some `-bin` packages use this repository as the binary-release producer before t
 
 | Entry point | Purpose |
 |---|---|
-| `scripts/ci_manager.sh discover` | Find all package directories that contain `package.conf` |
+| `scripts/ci_manager.sh discover` | Find all package directories that contain PackageSpec v1 `package.conf` |
 | `scripts/ci_manager.sh detect-updates` | Resolve upstream state without AUR access and emit a targeted update matrix |
 | `scripts/ci_manager.sh discover-binary-releases` | Find packages with `BINARY_RELEASE_ENABLED=true` |
 | `scripts/ci_manager.sh build-binary-release <pkgname-or-path>` | Build and publish self-built binary-release assets for one package |

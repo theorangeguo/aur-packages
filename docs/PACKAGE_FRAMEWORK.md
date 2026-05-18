@@ -5,11 +5,53 @@ This repository is a small packaging framework, not a collection of hand-written
 ## Design goals
 
 - Keep `scripts/` and `.github/workflows/` package-agnostic.
-- Keep each package's source of truth in `packages/<pkgname>/package.conf`.
+- Keep each package's PackageSpec v1 source of truth in `packages/<pkgname>/package.conf`.
 - Use package-local `hooks.sh` only when a generic resolver cannot express upstream discovery.
 - Use package-local `files/` for static assets such as service units, wrappers, install snippets, licenses, and examples.
 - Promote repeated package-local tricks into framework features before they spread.
 - Render `PKGBUILD`, `.SRCINFO`, generated install files, and copied assets only in temporary workspaces.
+- Provide reusable mechanisms, not package-specific solutions.
+- Prefer composition of small framework components over integrated package-specific flows.
+
+## Contract principles
+
+Package definitions are framework contracts. The current contract is PackageSpec v1, loaded from a shell data file named `package.conf` so the framework can stay Bash-first while still enforcing schema/version rules:
+
+- PackageSpec v1 is declarative data, not a programming language.
+- Specs select and configure framework components; they do not execute workflow logic.
+- The framework exposes mechanisms such as upstream resolvers, artifact producers, packaging templates, install/service renderers, smoke-check primitives, detectors, and publishers.
+- Packages compose those mechanisms through stable fields rather than triggering package-specific branches in shared scripts or workflow YAML.
+- The package directory remains the authority for package behavior. A root manifest, if introduced, may describe discovery scope only and must not contain package behavior.
+- Generated AUR outputs remain temporary render products, never source-of-truth package files.
+- AUR state remains authoritative for publishing. Detector state and spec fingerprints are cache/dispatch optimizations only.
+
+Avoid adding language features to package specs:
+
+- no loops or conditionals
+- no dynamic imports
+- no cross-package imports
+- no remote includes
+- no arbitrary command execution
+- no deep inheritance chains
+
+If reuse is needed later, prefer documented, framework-owned profiles with shallow merge semantics over package-authored inheritance trees.
+
+## Component boundaries
+
+Each framework component should have one job and a narrow interface:
+
+| Component | Provides | Must not provide |
+|---|---|---|
+| Package loader / normalizer | Load PackageSpec v1 `package.conf` or a future frontend and normalize it into one internal package model | Resolve upstream, render packages, or publish |
+| Upstream resolver | Produce `RESOLVED_VERSION`, `RESOLVED_SOURCE_URL_*`, and optional `STATE_*` values | Clone AUR, build, render, validate, or publish |
+| Binary-release producer | Build declared upstream sources into GitHub binary-release assets | Publish AUR packages or add workflow package branches |
+| Packaging template | Render temporary packaging outputs and build package candidates from normalized state | Resolve upstream, read detector cache, or mutate the package source of truth |
+| Install/service renderer | Generate or copy declared install/service assets | Decide package update policy or publish behavior |
+| Smoke-check runner | Verify installed files and commands declared by the package | Replace real package builds or make publish decisions |
+| Update detector | Resolve upstream/spec fingerprints and emit a targeted matrix | Become authoritative state or skip publish-path AUR comparison |
+| Publisher | Compare rendered output with the live AUR repo, validate, commit, and push | Trust detector cache as final state or skip validation |
+
+When a package needs behavior outside these boundaries, add or extend a generic component instead of integrating the package into a bespoke flow.
 
 ## Package boundary
 
@@ -17,12 +59,14 @@ Each package owns only this shape:
 
 ```text
 packages/<pkgname>/
-  package.conf      # required, source of truth
+  package.conf      # required PackageSpec v1 source of truth
   hooks.sh          # optional, upstream resolution escape hatch
   files/            # optional, static package assets
 ```
 
 Everything else is shared framework code.
+
+Package-local files should be declared by semantic role, such as patches, local source assets, docs, licenses, service units, wrappers, install scripts, or smoke-test assets. Avoid generic "include everything" behavior because the framework needs to know why a file participates in packaging.
 
 ## Naming and terminology rules
 
@@ -49,8 +93,8 @@ Static install scripts are allowed when they are intentionally maintained under 
 
 The shared flow is always:
 
-1. discover package directories by finding `package.conf`
-2. load package configuration
+1. discover package directories by finding PackageSpec v1 `package.conf`
+2. load, validate, and normalize the package spec
 3. resolve upstream version and source URLs
 4. prepare a temporary workspace
 5. render package outputs
@@ -127,6 +171,41 @@ Avoid hook behavior that changes rendering or install shape, such as mutating `B
 
 When a `STATE_*` value must persist into a rendered `PKGBUILD`, declare it with `PERSIST_STATE_KEYS` in `package.conf`.
 
+If a future PackageSpec hook system is added, prefer executable phase hooks over sourced Bash. A hook should run as a subprocess with explicit inputs and a structured output file. The framework should validate output keys before using them.
+
+Preferred future hook model:
+
+```text
+packages/<pkgname>/hooks/resolve-upstream.sh
+```
+
+Allowed hook outputs should stay narrow:
+
+- `RESOLVED_VERSION`
+- `RESOLVED_SOURCE_URL`
+- `RESOLVED_SOURCE_URL_X86_64`
+- `RESOLVED_SOURCE_URL_AARCH64`
+- `STATE_*`
+
+Future hooks should not edit generated `PKGBUILD` files, write outside temporary output paths, mutate framework internals, or silently introduce new state keys.
+
+## PackageSpec v1 and future frontend guidance
+
+PackageSpec v1 deliberately keeps `package.conf` as a shell-loadable data frontend. This avoids adding YAML tooling before the normalized model and component boundaries are proven.
+
+Current PackageSpec v1 rules:
+
+- Every package declares `PACKAGE_SPEC_VERSION=1`.
+- The loader rejects unsupported spec versions.
+- The loader normalizes arrays/defaults into the same internal shell model consumed by resolvers, templates, validation, and publishing.
+- Package specs may contain declarative assignments/arrays only; executable logic belongs in explicit package-local hooks or framework components.
+- Package specs must not cross-reference shell variables. Template placeholders are expanded by the framework from a small allowlist, for example `'${pkgname}'`, `'${pkgver}'`, `'${carch}'`, `'${upstream_version}'`, and `'${release_rev}'`.
+- Local package assets are declared by role through fields such as `LOCAL_FILES`, `PATCH_FILES`, `SERVICE_FILE`, `INSTALL_FILE`, and wrapper/test fields.
+
+If a structured `spec.yml` is introduced later, add it as another frontend that normalizes into this same model. Do not let YAML become a parallel pipeline or a package-authored language.
+
+A future PackageSpec should model binary-release producer/consumer behavior as a first-class artifact component, not as a workflow special case.
+
 ## Adding framework features
 
 Add a framework feature when at least one of these is true:
@@ -145,6 +224,7 @@ These are framework limitations, not package-specific exceptions:
 - Architecture support is currently centered on `x86_64` and `aarch64` in several helpers.
 - `source-cargo` binary release generation currently supports `x86_64` only.
 - `hooks.sh` is sourced shell, so discipline and review are required to keep it within the contract.
+- PackageSpec v1 still uses shell syntax for data; the loader and boundary guard reject obvious executable shell constructs in `package.conf`.
 - Some non-GitHub upstreams still require package-local hooks; repeated patterns should be promoted to resolvers.
 
 ## Boundary guard

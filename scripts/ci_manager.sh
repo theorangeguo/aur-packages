@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/lib/package_loader.sh"
+
 COMMAND=${1:-}
 shift || true
 
@@ -76,7 +82,7 @@ canonical_package_dir() {
             ;;
     esac
 
-    [ -f "$candidate/package.conf" ] || die "package.conf not found in $candidate"
+    package_has_definition "$candidate" || die "PackageSpec definition not found in $candidate"
     printf '%s' "$candidate"
 }
 
@@ -90,7 +96,7 @@ collect_all_packages() {
         dir=$(dirname "$file")
         dir=${dir#./}
         PACKAGES+=("$dir")
-    done < <(find "$PACKAGE_ROOT" -mindepth 2 -maxdepth 2 -name package.conf | sort)
+    done < <(discover_package_definition_files "$PACKAGE_ROOT")
 }
 
 append_unique_package() {
@@ -142,19 +148,20 @@ discover_changed_packages() {
                 ;;
         esac
 
-        [ -f "$candidate_dir/package.conf" ] || continue
+        package_has_definition "$candidate_dir" || continue
         append_unique_package "$candidate_dir"
     done
 }
 
 package_has_binary_release_enabled() {
     local package=$1
+    local enabled
 
-    (
-        # shellcheck disable=SC1090
-        source "${package}/package.conf"
-        [ "${BINARY_RELEASE_ENABLED:-false}" = true ]
-    )
+    if enabled=$(load_package_spec "$package" && printf '%s' "$BINARY_RELEASE_ENABLED"); then
+        [ "$enabled" = true ]
+    else
+        die "Failed to load PackageSpec for binary-release discovery: ${package}"
+    fi
 }
 
 filter_binary_release_packages() {
@@ -426,6 +433,9 @@ case "$COMMAND" in
 
             log "Running package validation in ephemeral ${RUNTIME} container..."
             ${RUNTIME} run --rm \
+                -e CI=true \
+                -e GITHUB_TOKEN="${GITHUB_TOKEN:-}" \
+                -e GH_TOKEN="${GH_TOKEN:-}" \
                 -v "$PWD:/src:ro" \
                 "$ARCH_BASE_DEVEL_IMAGE" \
                 bash -lc "set -e && mkdir -p /work && cp -a /src/. /work/ && rm -rf /work/.git && cd /work && chmod +x scripts/ci_manager.sh scripts/test_package.sh && ./scripts/ci_manager.sh install && ./scripts/ci_manager.sh setup-user && RUN_TEST_DIRECT=true ./scripts/ci_manager.sh run-test $(printf %q "$PKG_DIR")"

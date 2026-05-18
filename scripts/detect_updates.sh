@@ -55,15 +55,15 @@ json_escape() {
 }
 
 collect_packages() {
-    local config_file
+    local definition_file
     local package_dir
 
     PACKAGES=()
-    while IFS= read -r config_file; do
-        package_dir=$(dirname "$config_file")
+    while IFS= read -r definition_file; do
+        package_dir=$(dirname "$definition_file")
         package_dir=${package_dir#./}
         PACKAGES+=("$package_dir")
-    done < <(find packages -mindepth 2 -maxdepth 2 -name package.conf | sort)
+    done < <(discover_package_definition_files packages)
 }
 
 validate_policy() {
@@ -114,6 +114,7 @@ detection_fingerprint() {
     local var
 
     printf 'PKGNAME=%s\n' "$PKGNAME"
+    printf 'PACKAGE_SPEC_VERSION=%s\n' "$PACKAGE_SPEC_VERSION"
     printf 'UPSTREAM_TYPE=%s\n' "$UPSTREAM_TYPE"
     printf 'RESOLVED_VERSION=%s\n' "$RESOLVED_VERSION"
     printf 'PACKAGE_DEFINITION=%s\n' "$(package_definition_digest)"
@@ -146,8 +147,10 @@ hash_file_list() {
 package_definition_digest() {
     local files=()
     local file
+    local definition_path
 
-    files+=("${PACKAGE_DIR}/package.conf")
+    definition_path=$(package_definition_path "$PACKAGE_DIR") || die "PackageSpec definition not found in ${PACKAGE_DIR}"
+    files+=("$definition_path")
     [ -f "${PACKAGE_DIR}/hooks.sh" ] && files+=("${PACKAGE_DIR}/hooks.sh")
 
     if [ -d "${PACKAGE_DIR}/files" ]; then
@@ -178,7 +181,7 @@ detect_package() {
 
     (
         cd "$REPO_ROOT"
-        load_package_config "$package"
+        load_package_spec "$package"
         load_package_hooks
         dispatch_upstream_resolution >&2
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 - This repo is an Arch Linux AUR package monorepo.
-- Source-of-truth package definitions live in `package.conf`, optional `hooks.sh`, and optional `files/` assets.
+- Source-of-truth PackageSpec v1 definitions live in `package.conf`, with optional `hooks.sh` and optional `files/` assets.
 - `PKGBUILD` and `.SRCINFO` are generated only in temporary workspaces during local runs and CI.
 - Prefer small, package-scoped changes over broad cleanup.
 - Do not introduce new tooling or languages unless the user asks.
@@ -22,7 +22,7 @@
 ## Repository facts and local rules
 - No Cursor rules were found in `.cursor/rules/` or `.cursorrules`.
 - No Copilot instructions were found in `.github/copilot-instructions.md`.
-- CI auto-discovers package directories by locating `package.conf` files.
+- CI auto-discovers package directories by locating PackageSpec v1 `package.conf` files.
 - Scheduled AUR publishing first runs upstream-only update detection and then dispatches only changed package jobs.
 - The current package state baseline comes from the AUR repo, not from this monorepo.
 - Keep workflow YAML thin; most behavior belongs in `scripts/`.
@@ -33,6 +33,16 @@
 - Validation flow: discover packages -> resolve upstream -> render temporary `PKGBUILD` -> build -> install package in a container -> run smoke checks.
 - Main entrypoints: `scripts/ci_manager.sh discover`, `scripts/ci_manager.sh detect-updates`, `scripts/ci_manager.sh preflight <pkgname-or-path>`, `scripts/ci_manager.sh run-publish <pkgname-or-path> ...`, `scripts/ci_manager.sh run-test <pkgname-or-path>`, `scripts/ci_manager.sh build-binary-release <pkgname-or-path> ...`, `scripts/auto_update.sh <pkgname-or-path> ...`, `scripts/test_package.sh <pkgname-or-path>`
 - When touching update logic, inspect `scripts/auto_update.sh`, the relevant files under `scripts/lib/`, and any package-local `hooks.sh`.
+
+## Framework contract rules
+- Treat package definitions as a stable contract. `package.conf` is the current PackageSpec v1 frontend: declarative data plus explicit extension points, not a new programming language.
+- Prefer mechanism over solution: add reusable framework components such as upstream resolvers, packaging templates, artifact producers, install/service renderers, validation primitives, or publishers instead of package-specific workflow/script branches.
+- Prefer composition over integration: packages should combine independent components (`UPSTREAM_TYPE`, `PACKAGE_TEMPLATE`, `INSTALL_MODE`, `SERVICE_MODE`, `BINARY_RELEASE_TEMPLATE`, tests) rather than opt into monolithic custom flows.
+- Keep package behavior package-local. Root manifests, if introduced, may only control discovery scope such as `packages/*/spec.yml`; they must not hold package behavior or become a second source of truth.
+- Keep component boundaries sharp: resolvers resolve upstream state only; binary-release producers create assets only; templates render/build packages only; detectors optimize dispatch only; publishers validate and compare against live AUR state before push.
+- Keep hooks narrow. Existing `hooks.sh` should only resolve upstream state; future spec hooks should be phase-specific subprocesses with whitelisted outputs, not sourced code that mutates framework internals.
+- Do not allow cross-package imports, remote includes, deep inheritance, loops, conditionals, or arbitrary command execution in package specs. Local files must be declared by role (patch, doc, license, service, wrapper, test asset), not blindly included.
+- Version package specs with `PACKAGE_SPEC_VERSION`, normalize package definitions into the same internal model, and fail fast on unsupported major schema versions.
 
 ## GitHub Actions failure triage
 - When investigating failed Actions, first use `gh run list` and `gh run view <run-id> --log-failed` to identify the exact failed package/job before editing.
@@ -103,7 +113,8 @@ bash scripts/auto_update.sh <pkgname-or-path> [--dry-run] [--skip-build]
 - Do not source remote content or arbitrary user-provided paths.
 
 ### `package.conf` style
-- Treat `package.conf` as the package source of truth.
+- Treat `package.conf` as the PackageSpec v1 source of truth.
+- Set `PACKAGE_SPEC_VERSION=1` in every package definition.
 - Keep key fields simple, top-level, and easy to source from Bash.
 - Prefer explicit arrays like `ARCHES=('x86_64')`, `DEPENDS=()`, `LICENSES=('MIT')`.
 - Template selection should be declarative: `PACKAGE_TEMPLATE=...`, `UPSTREAM_TYPE=...`.

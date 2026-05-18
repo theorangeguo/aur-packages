@@ -209,7 +209,7 @@ main() {
 
     PKG_DIR=$(resolve_package_dir_input "$PKG_DIR")
 
-    load_package_config "$PKG_DIR"
+    load_package_spec "$PKG_DIR"
     load_package_hooks
 
     if [ "$PREFLIGHT_ONLY" = true ]; then

@@ -10,5 +10,4 @@ resolve_upstream_state() {
 
     RESOLVED_SOURCE_URL_X86_64="${bucket_url}/${RESOLVED_VERSION}/linux-x64/claude"
     RESOLVED_SOURCE_URL="https://raw.githubusercontent.com/anthropics/claude-code/v${RESOLVED_VERSION}/LICENSE.md"
-    BINARY_SOURCE_PATH="${PKGNAME}-${RESOLVED_VERSION}-x86_64"
 }
