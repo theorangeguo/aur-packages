@@ -222,17 +222,17 @@ Before committing, test the package locally from the repository root.
 Every package-affecting change must pass both package validation and publish-path dry-run before it is reported as complete:
 
 ```bash
-./scripts/ci_manager.sh build-binary-release my-package-name --dry-run
-./scripts/ci_manager.sh build-binary-release my-package-name --skip-publish
-./scripts/ci_manager.sh run-publish my-package-name --dry-run
-./scripts/ci_manager.sh run-test my-package-name
+python3 scripts/aurpkg.py build-binary-release my-package-name --dry-run
+python3 scripts/aurpkg.py build-binary-release my-package-name --skip-publish
+python3 scripts/aurpkg.py run-publish my-package-name --dry-run
+python3 scripts/aurpkg.py run-test my-package-name
 ```
 
 For shared script or workflow changes, run `run-publish --dry-run` and `run-test` for every package in the affected matrix. If external infrastructure prevents completion, record the exact failing command and dependency instead of treating the change as verified.
 
 The scheduled publish workflow uses `detect-updates` first. Detection resolves upstream metadata and writes a cached fingerprint under `.update-state/`; it does not clone AUR, build, or publish. Manual runs with a package use `dispatch_policy=auto`, which selects that package even when the detector state is unchanged. Use `dispatch_policy=selected` only with a single package.
 
-The manager accepts either a bare package name like `my-package-name` or an explicit path like `packages/my-package-name`.
+The CLI accepts either a bare package name like `my-package-name` or an explicit path like `packages/my-package-name`.
 
 Run `build-binary-release` before `run-publish`/`run-test` for self-built `-bin` packages when the expected GitHub release asset does not exist yet.
 

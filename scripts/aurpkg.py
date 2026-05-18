@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Single-file PackageSpec v1 automation CLI.
 
-This intentionally keeps the framework implementation in one Python file while
-the migration settles. Shell files in ``scripts/`` are compatibility wrappers;
-the package model, discovery, update detection, rendering, build/test, AUR sync,
-and binary-release orchestration live here.
+This intentionally keeps the framework implementation in one Python file. The
+package model, discovery, update detection, rendering, build/test, AUR sync, and
+binary-release orchestration live here.
 """
 
 from __future__ import annotations
@@ -159,8 +158,8 @@ def log_info(message: str) -> None:
     print(f"==> {message}")
 
 
-def log_ci(message: str) -> None:
-    print(f"==> [CI Manager] {message}")
+def log_cli(message: str) -> None:
+    print(f"==> [aurpkg] {message}")
 
 
 def log_error(message: str) -> None:
@@ -253,10 +252,6 @@ def q(value: str | int | bool | None) -> str:
     if isinstance(value, bool):
         value = bool_text(value)
     return bash_percent_quote(str(value))
-
-
-def bash_array_assignment(name: str, values: Iterable[str]) -> str:
-    return f"{name}=({ ' '.join(q(value) for value in values) })" if False else f"{name}=({ ' '.join(q(value) for value in values)})"
 
 
 def render_array_assignment(name: str, values: Iterable[str]) -> str:
@@ -1090,25 +1085,10 @@ def emit_shell_for_package(pkg: PackageSpec, raw_defaults: bool = False) -> str:
     return "\n".join(lines) + "\n"
 
 
-def command_spec_compat(command: str, args: list[str]) -> int:
+def command_validate(args: list[str]) -> int:
     if len(args) != 1:
-        print("Usage: aurpkg.py <validate|name|shell> <package.toml>", file=sys.stderr)
-        return 2
-    spec_path = Path(args[0]).resolve()
-    data = load_spec(str(spec_path))
-    if command == "validate":
-        # Also validate normalized defaults when this is a package directory.
-        if spec_path.parent.parent == PACKAGE_ROOT:
-            load_package(package_path_for_output(spec_path.parent))
-        return 0
-    if command == "name":
-        print(data["name"], end="")
-        return 0
-    package_dir = spec_path.parent
-    if package_dir.parent == PACKAGE_ROOT:
-        print(emit_shell_for_package(load_package(package_path_for_output(package_dir))), end="")
-    else:
-        print(emit_shell_for_package(load_package(data["name"])), end="")
+        raise CliError("Usage: aurpkg.py validate <pkgname-or-path>")
+    load_package(args[0])
     return 0
 
 
@@ -1476,7 +1456,7 @@ def resolve_github_release_family_assets(pkg: PackageSpec) -> None:
             log_error(f"  {tag}")
     if pkg.binary_release_enabled:
         log_error("This package consumes a self-built binary release asset. Bootstrap or update it with:")
-        log_error(f"  ./scripts/ci_manager.sh build-binary-release {pkg.name}")
+        log_error(f"  python3 scripts/aurpkg.py build-binary-release {pkg.name}")
     raise CliError(f"No GitHub release with required assets found for tag prefix: {pkg.upstream_release_tag_prefix}")
 
 
@@ -2352,7 +2332,7 @@ def build_workspace_as_current_user(pkg: PackageSpec, workspace: Path, srcdest: 
 def build_workspace(pkg: PackageSpec, workspace: Path, tmp_root: Path, srcdest: Path, pkgdest: Path, skip_build: bool = False, noninteractive: bool = False) -> None:
     if os.geteuid() == 0:
         if run(["id", "-u", "builder"], check=False, capture=True).returncode != 0:
-            raise CliError("builder user not found; run ./scripts/ci_manager.sh setup-user first")
+            raise CliError("builder user not found; run: python3 scripts/aurpkg.py setup-user")
         build_workspace_as_builder(pkg, workspace, tmp_root, srcdest, pkgdest, skip_build, noninteractive)
     else:
         build_workspace_as_current_user(pkg, workspace, srcdest, pkgdest, skip_build, noninteractive)
@@ -2764,11 +2744,11 @@ def command_run_publish(args: list[str]) -> int:
     return 0
 
 
-def command_test_package_direct(args: list[str]) -> int:
+def run_package_validation_direct(args: list[str]) -> int:
     if len(args) != 1:
-        raise CliError("Usage: aurpkg.py test-package <package_name_or_dir>")
+        raise CliError("Usage: aurpkg.py run-test <pkgname-or-path>")
     if os.geteuid() != 0:
-        raise CliError("scripts/test_package.sh must run as root inside the test container")
+        raise CliError("package validation direct mode must run as root inside the test container")
     require_cmd("git")
     require_cmd("makepkg")
     require_cmd("updpkgsums")
@@ -2821,12 +2801,19 @@ def command_run_test(args: list[str]) -> int:
         raise CliError("Usage: aurpkg.py run-test <pkgname-or-path>")
     pkg_dir = canonical_package_dir(args[0])
     if os.environ.get("RUN_TEST_DIRECT") == "true" or os.environ.get("CI") == "true":
-        log_ci("Running package validation directly in current Arch environment...")
-        return command_test_package_direct([pkg_dir])
+        log_cli("Running package validation directly in current Arch environment...")
+        return run_package_validation_direct([pkg_dir])
     runtime = detect_container_runtime()
     image = os.environ.get("ARCH_BASE_DEVEL_IMAGE", DEFAULT_ARCH_BASE_DEVEL_IMAGE)
-    log_ci(f"Running package validation in ephemeral {runtime} container...")
-    inner = f"set -e && mkdir -p /work && cp -a /src/. /work/ && rm -rf /work/.git && cd /work && chmod +x scripts/ci_manager.sh scripts/aurpkg.py && ./scripts/ci_manager.sh install && ./scripts/ci_manager.sh setup-user && RUN_TEST_DIRECT=true ./scripts/ci_manager.sh run-test {q(pkg_dir)}"
+    log_cli(f"Running package validation in ephemeral {runtime} container...")
+    inner = (
+        "set -e && "
+        "mkdir -p /work && cp -a /src/. /work/ && rm -rf /work/.git && cd /work && "
+        "pacman-key --init >/dev/null 2>&1 && "
+        "pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python && "
+        "python3 scripts/aurpkg.py setup-user && "
+        f"RUN_TEST_DIRECT=true python3 scripts/aurpkg.py run-test {q(pkg_dir)}"
+    )
     run([
         runtime,
         "run",
@@ -2838,7 +2825,7 @@ def command_run_test(args: list[str]) -> int:
         "-e",
         f"GH_TOKEN={os.environ.get('GH_TOKEN', '')}",
         "-v",
-        f"{Path.cwd()}:/src:ro",
+        f"{REPO_ROOT}:/src:ro",
         image,
         "bash",
         "-lc",
@@ -3351,28 +3338,8 @@ def command_build_binary_release(args: list[str]) -> int:
 def command_preflight(args: list[str]) -> int:
     if len(args) != 1:
         raise CliError("Usage: aurpkg.py preflight <pkgname-or-path>")
-    log_ci("Running package metadata preflight...")
+    log_cli("Running package metadata preflight...")
     run_preflight(load_package(args[0]))
-    return 0
-
-
-def command_install(args: list[str]) -> int:
-    if args:
-        raise CliError(f"Unknown install parameter: {args[0]}")
-    log_ci("Installing dependencies...")
-    if Path("/etc/arch-release").is_file():
-        if os.geteuid() != 0:
-            raise CliError("install must be run as root")
-        if os.environ.get("CI") == "true" and shutil.which("pacman-key"):
-            log_ci("Initializing pacman keyring for CI...")
-            run(["pacman-key", "--init"])
-
-        def pacman_install() -> None:
-            run(["pacman", "-Syu", "--needed", "--noconfirm", "git", "openssh", "pacman-contrib", "sudo", "curl", "jq", "python"])
-
-        retry("Install required Arch packages", 3, pacman_install)
-    else:
-        log_ci("Not an Arch system. Skipping pacman install. Ensure dependencies are met manually.")
     return 0
 
 
@@ -3381,11 +3348,11 @@ def command_setup_user(args: list[str]) -> int:
         raise CliError(f"Unknown setup-user parameter: {args[0]}")
     if os.geteuid() != 0:
         raise CliError("setup-user must be run as root")
-    log_ci("Setting up builder user...")
+    log_cli("Setting up builder user...")
     if run(["id", "-u", "builder"], check=False, capture=True).returncode != 0:
         run(["useradd", "-m", "builder"])
     else:
-        log_ci("User 'builder' already exists.")
+        log_cli("User 'builder' already exists.")
     sudoers = Path("/etc/sudoers.d/builder")
     if not sudoers.is_file():
         sudoers.write_text("builder ALL=(ALL) NOPASSWD: ALL\n", encoding="utf-8")
@@ -3397,11 +3364,11 @@ def show_help() -> None:
     print(
         "Usage: aurpkg.py <command> [args]\n\n"
         "Commands:\n"
+        "  validate <pkgname-or-path>\n"
         "  discover\n"
         "  detect-updates <args>\n"
         "  discover-binary-releases <args>\n"
         "  check-framework-boundaries\n"
-        "  install\n"
         "  setup-user\n"
         "  preflight <pkgname-or-path>\n"
         "  build-binary-release <pkgname-or-path> [args]\n"
@@ -3417,29 +3384,25 @@ def main(argv: list[str]) -> int:
     command = argv[1]
     args = argv[2:]
     try:
-        if command in {"validate", "name", "shell"}:
-            return command_spec_compat(command, args)
+        if command == "validate":
+            return command_validate(args)
         if command == "discover":
             return command_discover(args)
-        if command in {"discover-binary-releases", "discover_binary_releases"}:
+        if command == "discover-binary-releases":
             return command_discover_binary_releases(args)
-        if command in {"check-framework-boundaries", "check_framework_boundaries"}:
+        if command == "check-framework-boundaries":
             return command_check_framework_boundaries(args)
         if command == "detect-updates":
             return command_detect_updates(args)
-        if command == "install":
-            return command_install(args)
-        if command in {"setup-user", "setup_user"}:
+        if command == "setup-user":
             return command_setup_user(args)
         if command == "preflight":
             return command_preflight(args)
-        if command in {"run-publish", "run_publish", "run-update", "run_update"}:
+        if command == "run-publish":
             return command_run_publish(args)
-        if command in {"run-test", "run_test"}:
+        if command == "run-test":
             return command_run_test(args)
-        if command == "test-package":
-            return command_test_package_direct(args)
-        if command in {"build-binary-release", "build_binary_release"}:
+        if command == "build-binary-release":
             return command_build_binary_release(args)
         if command in {"-h", "--help", "help"}:
             show_help()
