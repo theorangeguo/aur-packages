@@ -99,8 +99,14 @@ for archive_file in "\${BINARY_RELEASE_ARCHIVE_FILES[@]}"; do
     [ -n "\$source_path" ] || { echo "Invalid archive file spec: \$archive_file" >&2; exit 1; }
     [ -n "\$destination_path" ] || { echo "Invalid archive file spec: \$archive_file" >&2; exit 1; }
     [ -n "\$file_mode" ] || file_mode=644
+    case "\$source_path" in
+        /*|../*|*/../*|*/..) echo "Archive source must be relative and stay inside the source tree: \$source_path" >&2; exit 1 ;;
+    esac
     case "\$destination_path" in
-        /*|*../*) echo "Archive destination must be relative and stay inside archive: \$destination_path" >&2; exit 1 ;;
+        /*|../*|*/../*|*/..) echo "Archive destination must be relative and stay inside archive: \$destination_path" >&2; exit 1 ;;
+    esac
+    case "\$file_mode" in
+        *[!0-7]*|''|?????*) echo "Archive mode must be octal: \$file_mode" >&2; exit 1 ;;
     esac
     [ -f "\$source_path" ] || { echo "Archive source not found: \$source_path" >&2; exit 1; }
     install -Dm"\$file_mode" "\$source_path" "/output/\$destination_path"

@@ -5,7 +5,7 @@ This repository is a small packaging framework, not a collection of hand-written
 ## Design goals
 
 - Keep `scripts/` and `.github/workflows/` package-agnostic.
-- Keep each package's PackageSpec v1 source of truth in `packages/<pkgname>/package.conf`.
+- Keep each package's PackageSpec v1 source of truth in `packages/<pkgname>/package.toml`.
 - Use package-local `hooks.sh` only when a generic resolver cannot express upstream discovery.
 - Use package-local `files/` for static assets such as service units, wrappers, install snippets, licenses, and examples.
 - Promote repeated package-local tricks into framework features before they spread.
@@ -15,7 +15,7 @@ This repository is a small packaging framework, not a collection of hand-written
 
 ## Contract principles
 
-Package definitions are framework contracts. The current contract is PackageSpec v1, loaded from a shell data file named `package.conf` so the framework can stay Bash-first while still enforcing schema/version rules:
+Package definitions are framework contracts. The current contract is PackageSpec v1, loaded from a strict TOML file named `package.toml` and normalized into the internal Bash model used by the existing AUR pipeline:
 
 - PackageSpec v1 is declarative data, not a programming language.
 - Specs select and configure framework components; they do not execute workflow logic.
@@ -42,7 +42,7 @@ Each framework component should have one job and a narrow interface:
 
 | Component | Provides | Must not provide |
 |---|---|---|
-| Package loader / normalizer | Load PackageSpec v1 `package.conf` or a future frontend and normalize it into one internal package model | Resolve upstream, render packages, or publish |
+| Package loader / normalizer | Load PackageSpec v1 `package.toml`, validate schema/type rules, and normalize it into one internal package model | Resolve upstream, render packages, or publish |
 | Upstream resolver | Produce `RESOLVED_VERSION`, `RESOLVED_SOURCE_URL_*`, and optional `STATE_*` values | Clone AUR, build, render, validate, or publish |
 | Binary-release producer | Build declared upstream sources into GitHub binary-release assets | Publish AUR packages or add workflow package branches |
 | Packaging template | Render temporary packaging outputs and build package candidates from normalized state | Resolve upstream, read detector cache, or mutate the package source of truth |
@@ -59,7 +59,7 @@ Each package owns only this shape:
 
 ```text
 packages/<pkgname>/
-  package.conf      # required PackageSpec v1 source of truth
+  package.toml      # required PackageSpec v1 source of truth
   hooks.sh          # optional, upstream resolution escape hatch
   files/            # optional, static package assets
 ```
@@ -70,10 +70,10 @@ Package-local files should be declared by semantic role, such as patches, local 
 
 ## Naming and terminology rules
 
-- Package directories must match `PKGNAME` exactly.
+- Package directories must match the PackageSpec `name` exactly.
 - Prefer kebab-case package names. Versioned library packages may include a dot when that matches Arch naming conventions, such as `wlroots0.20-vmwgfx`.
-- Do not repeat binary packaging in `PKGDESC`; `-bin` in `PKGNAME` is enough unless the upstream product name itself contains that wording.
-- Architecture-specific source rename fields should include the architecture in the rendered filename, for example `SOURCE_RENAME_X86_64='${pkgname}-${pkgver}-x86_64.tar.gz'`.
+- Do not repeat binary packaging in `desc`; `-bin` in `name` is enough unless the upstream product name itself contains that wording.
+- Architecture-specific source rename fields should include the architecture in the rendered filename, for example `source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''` under `[upstream.assets.x86_64]`.
 - Prefer these user-facing terms:
   - **package validation** for build/install/smoke-check verification
   - **smoke checks** for installed-file and command assertions
@@ -87,13 +87,13 @@ Generated AUR outputs must not be committed under `packages/`:
 - `.SRCINFO`
 - generated top-level `.install` files
 
-Static install scripts are allowed when they are intentionally maintained under package-local `files/` and referenced with `INSTALL_MODE=static`.
+Static install scripts are allowed when they are intentionally maintained under package-local `files/` and referenced with `[install] mode = "static"`.
 
 ## Shared pipeline
 
 The shared flow is always:
 
-1. discover package directories by finding PackageSpec v1 `package.conf`
+1. discover package directories by finding PackageSpec v1 `package.toml`
 2. load, validate, and normalize the package spec
 3. resolve upstream version and source URLs
 4. prepare a temporary workspace
@@ -112,12 +112,12 @@ Shared scripts may branch on framework concepts. These are acceptable because pa
 
 | Concept | Field | Examples |
 |---|---|---|
-| Package renderer | `PACKAGE_TEMPLATE` | `binary-archive`, `deb-repack`, `appimage-desktop`, `source-meson` |
-| Upstream resolver | `UPSTREAM_TYPE` | `github-release-assets`, `custom-hook` |
-| Install script | `INSTALL_MODE` | `none`, `generated`, `static` |
-| Service unit | `SERVICE_MODE` | `none`, `generated`, `static` |
-| Service scope | `SERVICE_SCOPE` | `user`, `system` |
-| Binary-release asset builder | `BINARY_RELEASE_TEMPLATE` | `source-cargo` |
+| Package renderer | top-level `template` | `binary-archive`, `deb-repack`, `appimage-desktop`, `source-meson` |
+| Upstream resolver | `[upstream] type` | `github-release-assets`, `custom-hook` |
+| Install script | `[install] mode` | `none`, `generated`, `static` |
+| Service unit | `[service] mode` | `none`, `generated`, `static` |
+| Service scope | `[service] scope` | `user`, `system` |
+| Binary-release asset builder | `[binary_release] template` | `source-cargo` |
 
 Shared scripts must not branch on package names.
 
@@ -142,18 +142,22 @@ Bad:
 
 Good:
 
-```bash
-PACKAGE_TEMPLATE=binary-archive
-UPSTREAM_TYPE=github-release-assets
-SERVICE_MODE=static
-SERVICE_FILE='files/some-package.service'
+```toml
+template = "binary-archive"
+
+[upstream]
+type = "github-release-assets"
+
+[service]
+mode = "static"
+file = "files/some-package.service"
 ```
 
 If a new package cannot be expressed with existing fields, decide whether the need is:
 
 1. a package-local upstream resolution quirk: add `hooks.sh`
-2. a repeated upstream pattern: add a generic `UPSTREAM_TYPE`
-3. a repeated packaging layout: add or extend a `PACKAGE_TEMPLATE`
+2. a repeated upstream pattern: add a generic `[upstream] type`
+3. a repeated packaging layout: add or extend a `template`
 4. a one-off static asset: place it under package `files/`
 
 ## Hook contract
@@ -169,7 +173,7 @@ Preferred hook behavior:
 
 Avoid hook behavior that changes rendering or install shape, such as mutating `BINARY_SOURCE_PATH`, `SERVICE_*`, `DOC_FILES`, or template-specific options. If a hook needs to do that, treat it as evidence that the framework is missing a generic field.
 
-When a `STATE_*` value must persist into a rendered `PKGBUILD`, declare it with `PERSIST_STATE_KEYS` in `package.conf`.
+When a `STATE_*` value must persist into a rendered `PKGBUILD`, declare it with `[state] persist = ["NAME_WITHOUT_STATE_PREFIX"]` in `package.toml`.
 
 If a future PackageSpec hook system is added, prefer executable phase hooks over sourced Bash. A hook should run as a subprocess with explicit inputs and a structured output file. The framework should validate output keys before using them.
 
@@ -189,22 +193,34 @@ Allowed hook outputs should stay narrow:
 
 Future hooks should not edit generated `PKGBUILD` files, write outside temporary output paths, mutate framework internals, or silently introduce new state keys.
 
-## PackageSpec v1 and future frontend guidance
+## PackageSpec v1 TOML frontend
 
-PackageSpec v1 deliberately keeps `package.conf` as a shell-loadable data frontend. This avoids adding YAML tooling before the normalized model and component boundaries are proven.
+PackageSpec v1 uses TOML instead of shell assignments. TOML gives package definitions comments, typed booleans/arrays, literal strings for regexes/templates, and a small parser surface via Python's standard-library `tomllib`.
 
 Current PackageSpec v1 rules:
 
-- Every package declares `PACKAGE_SPEC_VERSION=1`.
+- Every package declares `spec_version = 1`.
 - The loader rejects unsupported spec versions.
-- The loader normalizes arrays/defaults into the same internal shell model consumed by resolvers, templates, validation, and publishing.
-- Package specs may contain declarative assignments/arrays only; executable logic belongs in explicit package-local hooks or framework components.
-- Package specs must not cross-reference shell variables. Template placeholders are expanded by the framework from a small allowlist, for example `'${pkgname}'`, `'${pkgver}'`, `'${carch}'`, `'${upstream_version}'`, and `'${release_rev}'`.
-- Local package assets are declared by role through fields such as `LOCAL_FILES`, `PATCH_FILES`, `SERVICE_FILE`, `INSTALL_FILE`, and wrapper/test fields.
+- The loader rejects unknown keys/tables and wrong value types before any packaging logic runs.
+- The loader normalizes TOML tables into the same internal shell model consumed by resolvers, templates, validation, and publishing.
+- Package specs are declarative TOML only; executable logic belongs in explicit package-local hooks or framework components.
+- Package specs must not cross-reference shell variables. Template placeholders are expanded by the framework from a small allowlist, for example `'''${pkgname}'''`, `'''${pkgver}'''`, `'''${carch}'''`, `'''${upstream_version}'''`, and `'''${release_rev}'''`.
+- Local package assets are declared by role through fields such as `[files] patches`, `[files] docs`, `[files] licenses`, `[install] file`, `[service] file`, wrapper fields, and `[tests]` fields.
 
-If a structured `spec.yml` is introduced later, add it as another frontend that normalizes into this same model. Do not let YAML become a parallel pipeline or a package-authored language.
+The TOML frontend remains only a frontend. Do not let it become a package-authored language with imports, inheritance, conditionals, or execution.
 
-A future PackageSpec should model binary-release producer/consumer behavior as a first-class artifact component, not as a workflow special case.
+Binary-release producer/consumer behavior is modeled as a first-class `[binary_release]` component, not as a workflow special case.
+
+```mermaid
+flowchart TD
+    A[package.toml] --> B[strict TOML parser]
+    B --> C[normalized package model]
+    C --> D[upstream resolver]
+    C --> E[packaging template]
+    C --> F[install/service renderer]
+    C --> G[smoke-check runner]
+    C --> H[binary-release producer]
+```
 
 ## Adding framework features
 
@@ -223,8 +239,7 @@ These are framework limitations, not package-specific exceptions:
 
 - Architecture support is currently centered on `x86_64` and `aarch64` in several helpers.
 - `source-cargo` binary release generation currently supports `x86_64` only.
-- `hooks.sh` is sourced shell, so discipline and review are required to keep it within the contract.
-- PackageSpec v1 still uses shell syntax for data; the loader and boundary guard reject obvious executable shell constructs in `package.conf`.
+- Existing `hooks.sh` is still sourced Bash; the framework guards against PackageSpec field mutation during hook load and upstream resolution, but future hook phases should move to subprocesses with structured output.
 - Some non-GitHub upstreams still require package-local hooks; repeated patterns should be promoted to resolvers.
 
 ## Boundary guard
@@ -243,11 +258,11 @@ The package validation workflow runs the same guard.
 
 Before adding a package, answer these questions:
 
-1. Can the package be expressed with an existing `PACKAGE_TEMPLATE`?
-2. Can upstream be resolved with an existing `UPSTREAM_TYPE`?
+1. Can the package be expressed with an existing `template`?
+2. Can upstream be resolved with an existing `[upstream] type`?
 3. If `hooks.sh` is needed, does it only resolve upstream state?
 4. Are all static assets under package-local `files/`?
-5. Are smoke checks declared through `TEST_PATHS`, `TEST_EXECUTABLES`, or `TEST_COMMANDS`?
+5. Are smoke checks declared through `[tests] paths`, `executables`, or `commands`?
 6. Did you avoid editing workflows for a package-specific reason?
 7. Did you update `README.md` when adding or removing a package?
 

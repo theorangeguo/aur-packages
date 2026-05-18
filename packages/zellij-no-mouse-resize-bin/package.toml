@@ -1,0 +1,74 @@
+spec_version = 1
+name = "zellij-no-mouse-resize-bin"
+template = "binary-archive"
+
+[metadata]
+desc = "Zellij with advanced_mouse_actions also gating pane mouse resize"
+url = "https://zellij.dev"
+licenses = ["MIT"]
+arches = ["x86_64"]
+depends = ["glibc", "libgcc", "libgcc_s.so", "zlib", "libz.so"]
+makedepends = []
+checkdepends = []
+optdepends = []
+options = ["!strip"]
+provides = ["zellij", "zellij-no-mouse-resize"]
+conflicts = ["zellij", "zellij-bin", "zellij-git", "zellij-no-mouse-resize"]
+validpgpkeys = []
+
+[upstream]
+type = "github-release-assets"
+repo = "orange-guo/aur-packages"
+release_tag_prefix = "zellij-no-mouse-resize-bin-v"
+tag_prefix = "zellij-no-mouse-resize-bin-v"
+
+[upstream.assets.x86_64]
+asset_name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''
+source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+
+[package]
+binary_name = "zellij"
+binary_source_path = "zellij"
+install_bin_path = "/usr/bin/zellij"
+
+[files]
+docs = ["README.md"]
+licenses = ["LICENSE.md"]
+
+[install]
+mode = "none"
+
+[service]
+mode = "none"
+
+[tests]
+commands = ["/usr/bin/zellij --version"]
+
+[binary_release]
+enabled = true
+template = "source-cargo"
+rev = 1
+version_template = '''${upstream_version}.r${release_rev}'''
+tag_prefix = "zellij-no-mouse-resize-bin-v"
+repo = "orange-guo/aur-packages"
+arches = ["x86_64"]
+source_dir = '''zellij-${upstream_version}'''
+patch_files = ["files/0001-gate-mouse-resize-behind-advanced-actions.patch"]
+makedepends = ["ca-certificates", "curl", "git", "patch", "rust", "tar"]
+cargo_fetch_args = []
+cargo_build_args = ["--release", "--frozen"]
+cargo_check_args = ["--frozen"]
+run_check = false
+archive_files = [
+  "target/release/zellij:zellij:755",
+  "LICENSE.md:LICENSE.md:644",
+  "README.md:README.md:644",
+]
+
+[binary_release.upstream]
+type = "github-source-archive"
+repo = "zellij-org/zellij"
+tag_prefix = "v"
+
+[binary_release.assets.x86_64]
+name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''

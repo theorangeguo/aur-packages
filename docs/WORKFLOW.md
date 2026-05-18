@@ -1,6 +1,6 @@
 # Workflow Architecture
 
-This document explains how this repository turns PackageSpec v1 `package.conf` definitions into tested AUR updates.
+This document explains how this repository turns PackageSpec v1 `package.toml` definitions into tested AUR updates.
 
 ## 1. Source of Truth
 
@@ -8,7 +8,7 @@ Each package directory keeps only the declarative inputs:
 
 - package directories live under `packages/<pkgname>/`
 
-- `package.conf` — required PackageSpec v1 source of truth
+- `package.toml` — required PackageSpec v1 source of truth
 - `hooks.sh` — optional upstream-resolution overrides
 - `files/` — optional static assets copied into the temporary workspace
 
@@ -26,27 +26,41 @@ For AUR metadata, `url` remains the upstream project URL. There is no second str
 
 ```mermaid
 flowchart TD
-    A[PackageSpec v1 package.conf / hooks.sh / files/] --> B[discover package]
-    B --> C[resolve upstream version and source URLs]
-    C --> D[render temporary workspace]
-    D --> E[generate PKGBUILD / .SRCINFO / optional .install]
-    E --> F[build package with makepkg]
-    F --> G[install built package with pacman -U]
-    G --> H[run smoke checks]
-    H --> I[publish rendered files to AUR]
+    A[PackageSpec v1 package.toml] --> B[loader / normalizer]
+    C[hooks.sh optional upstream resolver] --> D[upstream state]
+    E[files/ package-local assets] --> F[temporary workspace]
+
+    B --> G[normalized package model]
+    G --> D
+    D --> F
+    G --> F
+    F --> H[render PKGBUILD / .SRCINFO / optional .install]
+    H --> I[build package with makepkg]
+    I --> J[install built package with pacman -U]
+    J --> K[run smoke checks]
+    K --> L[publish rendered files to AUR]
 ```
 
 The critical point is that **publish is gated by the same package validation path used in pull requests**.
 
-Some `-bin` packages use this repository as the binary-release producer before the normal AUR pipeline consumes the asset. Those packages declare `BINARY_RELEASE_ENABLED=true` in `package.conf`; the generic binary-release workflow builds the upstream source in an Arch container, applies package-local patches, uploads a GitHub Release asset, and then the regular `binary-archive` package template downloads that asset during AUR validation/publish.
+Some `-bin` packages use this repository as the binary-release producer before the normal AUR pipeline consumes the asset. Those packages declare `[binary_release] enabled = true` in `package.toml`; the generic binary-release workflow builds the upstream source in an Arch container, applies package-local patches, uploads a GitHub Release asset, and then the regular `binary-archive` package template downloads that asset during AUR validation/publish.
+
+```mermaid
+flowchart LR
+    A[package.toml binary_release component] --> B[build-binary-releases.yml]
+    B --> C[source-cargo producer]
+    C --> D[GitHub Release asset]
+    D --> E[github-release-assets resolver]
+    E --> F[binary-archive AUR package]
+```
 
 ## 3. Main Entry Points
 
 | Entry point | Purpose |
 |---|---|
-| `scripts/ci_manager.sh discover` | Find all package directories that contain PackageSpec v1 `package.conf` |
+| `scripts/ci_manager.sh discover` | Find all package directories that contain PackageSpec v1 `package.toml` |
 | `scripts/ci_manager.sh detect-updates` | Resolve upstream state without AUR access and emit a targeted update matrix |
-| `scripts/ci_manager.sh discover-binary-releases` | Find packages with `BINARY_RELEASE_ENABLED=true` |
+| `scripts/ci_manager.sh discover-binary-releases` | Find packages with `[binary_release] enabled = true` |
 | `scripts/ci_manager.sh build-binary-release <pkgname-or-path>` | Build and publish self-built binary-release assets for one package |
 | `scripts/ci_manager.sh preflight <pkgname-or-path>` | Resolve upstream metadata and asset selectors without building or publishing |
 | `scripts/ci_manager.sh run-test <pkgname-or-path>` | Build, install, and smoke-check one package |
@@ -74,7 +88,7 @@ It is responsible for:
 
 Both validation and publish now call that same pipeline.
 
-The binary-release producer is separate from the AUR package pipeline. Its shared logic lives in `scripts/build_binary_release.sh`, `scripts/lib/binary_release.sh`, and `scripts/lib/binary_release_source_cargo.sh`. This keeps package-specific binary-release asset recipes declarative in `package.conf` rather than in package-specific workflow YAML.
+The binary-release producer is separate from the AUR package pipeline. Its shared logic lives in `scripts/build_binary_release.sh`, `scripts/lib/binary_release.sh`, and `scripts/lib/binary_release_source_cargo.sh`. This keeps package-specific binary-release asset recipes declarative in `package.toml` rather than in package-specific workflow YAML.
 
 For validation, discovery is change-aware:
 
@@ -177,12 +191,12 @@ In non-root local runs, package builds use the current user. In root/CI paths, t
 
 Smoke checks are mostly template-driven. They verify things like:
 
-- `INSTALL_BIN_PATH`
+- `[package] install_bin_path`
 - generated or static service files
 - AppImage desktop entries
-- license files under `/usr/share/licenses/${PKGNAME}/`
-- extra package-specific paths from `TEST_PATHS`
-- extra package-specific executables from `TEST_EXECUTABLES`
+- license files under `/usr/share/licenses/<pkgname>/`
+- extra package-specific paths from `[tests] paths`
+- extra package-specific executables from `[tests] executables`
 
 The checks confirm installation shape, not full runtime behavior.
 

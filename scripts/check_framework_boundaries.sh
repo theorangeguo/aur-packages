@@ -53,7 +53,7 @@ load_shared_files() {
     done < <(
         find "${REPO_ROOT}/scripts" "${REPO_ROOT}/.github/workflows" \
             -type f \
-            \( -name '*.sh' -o -name '*.yml' -o -name '*.yaml' \) \
+            \( -name '*.sh' -o -name '*.py' -o -name '*.yml' -o -name '*.yaml' \) \
             | sort
     )
 }
@@ -105,7 +105,7 @@ check_package_specs_are_data_only() {
 
     while IFS= read -r definition_path; do
         if ! validate_package_spec_data_only "$definition_path"; then
-            add_failure "PackageSpec contains unsupported shell constructs: ${definition_path#"${REPO_ROOT}/"}"
+            add_failure "PackageSpec is not valid TOML PackageSpec v1: ${definition_path#"${REPO_ROOT}/"}"
         fi
     done < <(discover_package_definition_files "${REPO_ROOT}/packages")
 }
@@ -124,7 +124,7 @@ main() {
         cat >&2 <<'EOF'
 
 Shared automation must stay package-agnostic.
-Move package-specific behavior into PackageSpec v1 package.conf, package-local hooks.sh, package-local files/, or a new generic framework feature.
+Move package-specific behavior into PackageSpec v1 package.toml, package-local hooks.sh, package-local files/, or a new generic framework feature.
 See docs/PACKAGE_FRAMEWORK.md.
 EOF
         exit 1

@@ -1,0 +1,40 @@
+spec_version = 1
+name = "fingerprint-chromium-bin"
+template = "appimage-desktop"
+
+[metadata]
+desc = "Fingerprint Chromium (Ungoogled Chromium with fingerprinting protection)"
+url = "https://github.com/adryfish/fingerprint-chromium"
+licenses = ["BSD"]
+arches = ["x86_64"]
+depends = ["gtk3", "nss", "alsa-lib", "xdg-utils", "libxss", "ttf-liberation"]
+makedepends = []
+options = ["!strip"]
+provides = ["fingerprint-chromium"]
+conflicts = ["fingerprint-chromium"]
+
+[upstream]
+type = "github-release-assets"
+repo = "adryfish/fingerprint-chromium"
+tag_prefix = ""
+
+[upstream.assets.x86_64]
+selector = '''^ungoogled-chromium-.*-x86_64\.AppImage$'''
+source_rename = '''${pkgname}-${pkgver}-x86_64.AppImage'''
+
+[package]
+binary_name = "fingerprint-chromium"
+install_bin_path = "/usr/bin/fingerprint-chromium"
+
+[build]
+appimage_appdir_name = "squashfs-root"
+desktop_candidates = ["ungoogled-chromium.desktop", "fingerprint-chromium.desktop"]
+icon_candidates = ["product_logo_256.png"]
+desktop_exec_rewrite = "/usr/bin/fingerprint-chromium"
+desktop_name_rewrite = "Fingerprint Chromium"
+
+[install]
+mode = "none"
+
+[service]
+mode = "none"

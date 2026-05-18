@@ -1,0 +1,60 @@
+spec_version = 1
+name = "cpa-usage-keeper-bin"
+template = "binary-archive"
+
+[metadata]
+desc = "Standalone CLIProxyAPI usage persistence and dashboard service"
+url = "https://github.com/Willxup/cpa-usage-keeper"
+licenses = ["MIT"]
+arches = ["x86_64", "aarch64"]
+depends = ["glibc"]
+makedepends = []
+checkdepends = []
+optdepends = ["cli-proxy-api: local CLIProxyAPI backend"]
+options = ["!strip"]
+provides = ["cpa-usage-keeper"]
+conflicts = ["cpa-usage-keeper"]
+validpgpkeys = []
+
+[upstream]
+type = "github-release-assets"
+repo = "Willxup/cpa-usage-keeper"
+tag_prefix = "v"
+
+[upstream.assets.x86_64]
+selector = '''^cpa-usage-keeper_v.*_linux_amd64\.tar\.gz$'''
+source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+
+[upstream.assets.aarch64]
+selector = '''^cpa-usage-keeper_v.*_linux_(arm64|aarch64)\.tar\.gz$'''
+source_rename = '''${pkgname}-${pkgver}-aarch64.tar.gz'''
+
+[package]
+binary_name = "cpa-usage-keeper"
+binary_source_path = "*/cpa-usage-keeper"
+install_bin_path = "/usr/bin/cpa-usage-keeper"
+
+[files]
+local = ["files/cpa-usage-keeper.env.example"]
+docs = ["cpa-usage-keeper.env.example", "*/README.md", "*/README.en.md", "*/CONTRIBUTORS.md"]
+licenses = ["*/LICENSE"]
+
+[install]
+mode = "generated"
+hints = [
+  ":: Copy the example configuration before starting the service:",
+  "   install -Dm600 /usr/share/doc/cpa-usage-keeper-bin/cpa-usage-keeper.env.example ~/.config/cpa-usage-keeper/cpa-usage-keeper.env",
+  "   $EDITOR ~/.config/cpa-usage-keeper/cpa-usage-keeper.env",
+  ":: CLIProxyAPI must publish usage events: set usage-statistics-enabled: true in CLIProxyAPI config.",
+  ":: Dashboard listens on APP_PORT from ~/.config/cpa-usage-keeper/cpa-usage-keeper.env, default 8080 in the example.",
+  ":: To start without an active login session, enable linger: loginctl enable-linger $USER",
+]
+
+[service]
+mode = "static"
+scope = "user"
+name = "cpa-usage-keeper.service"
+file = "files/cpa-usage-keeper.service"
+
+[tests]
+commands = ["/usr/bin/cpa-usage-keeper --help"]

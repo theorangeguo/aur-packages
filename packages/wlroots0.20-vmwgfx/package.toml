@@ -1,0 +1,66 @@
+spec_version = 1
+name = "wlroots0.20-vmwgfx"
+template = "source-meson"
+
+[metadata]
+desc = "Modular Wayland compositor library with a vmwgfx compatibility patch"
+url = "https://gitlab.freedesktop.org/wlroots/wlroots"
+licenses = ["MIT"]
+arches = ["x86_64"]
+depends = [
+  "glibc",
+  "libdisplay-info.so",
+  "libdrm",
+  "libglvnd",
+  "libinput",
+  "liblcms2.so",
+  "libliftoff.so",
+  "libpixman-1.so",
+  "libseat.so",
+  "libudev.so",
+  "libvulkan.so",
+  "libwayland-client.so",
+  "libwayland-server.so",
+  "libxcb",
+  "libxkbcommon.so",
+  "wayland-protocols",
+  "opengl-driver",
+  "xcb-util-errors",
+  "xcb-util-renderutil",
+  "xcb-util-wm",
+]
+makedepends = ["git", "glslang", "meson", "ninja", "systemd", "vulkan-headers", "xorg-xwayland"]
+checkdepends = []
+optdepends = [
+  "xorg-xwayland: Xwayland support",
+  "vulkan-validation-layers: validation layers for the experimental vulkan renderer backend",
+]
+options = []
+provides = ["libwlroots-0.20.so", "wlroots0.20"]
+conflicts = ["wlroots0.20"]
+validpgpkeys = [
+  "34FF9526CFEF0E97A340E2E40FDE7BE0E88F5E48", # Simon Ser
+  "9DDA3B9FA5D58DD5392C78E652CB6609B22DA89A", # Drew DeVault
+  "4100929B33EEB0FD1DB852797BC79407090047CA", # Sway signing key
+]
+
+[upstream]
+type = "custom-hook"
+
+[build]
+source_rename = '''${pkgname}'''
+source_dir = '''${pkgname}'''
+build_dir = "build"
+meson_options = []
+run_check = false
+check_args = []
+
+[files]
+patches = ["files/0001-vmwgfx-disable-dmabuf-import-check-after-close-failure.patch"]
+licenses = ["LICENSE"]
+
+[install]
+mode = "none"
+
+[service]
+mode = "none"

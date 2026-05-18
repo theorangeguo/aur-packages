@@ -171,7 +171,7 @@ package_framework_digest() {
 
     while IFS= read -r file; do
         files+=("$file")
-    done < <(find "${SCRIPT_DIR}/lib" -maxdepth 1 -type f -name '*.sh' | sort)
+    done < <(find "${SCRIPT_DIR}/lib" -maxdepth 1 -type f \( -name '*.sh' -o -name '*.py' \) | sort)
 
     hash_file_list "${files[@]}"
 }

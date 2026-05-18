@@ -1,119 +1,137 @@
 # Contributing & Packaging Guide
 
-This repository is template-driven. Each package directory declares a PackageSpec v1 via `package.conf`, with optional `hooks.sh` and `files/` overrides. `PKGBUILD` and `.SRCINFO` are generated only during local runs and CI.
+This repository is template-driven. Each package directory declares a PackageSpec v1 in `package.toml`, with optional `hooks.sh` and `files/` assets. `PKGBUILD` and `.SRCINFO` are generated only during local runs and CI.
 
 For the end-to-end repository workflow, see [WORKFLOW.md](WORKFLOW.md). For framework boundaries, extension points, and anti-corruption rules, see [PACKAGE_FRAMEWORK.md](PACKAGE_FRAMEWORK.md).
 
 ## 📋 Standard Process for New Packages
 
 ### 1. Create Package Directory
-Create a new directory under `packages/` whose name matches `PKGNAME`.
+
+Create a new directory under `packages/` whose name matches the PackageSpec `name`.
 
 ```bash
 mkdir -p packages/my-package-name
 ```
 
-### 2. Create `package.conf`
-This is the PackageSpec v1 source of truth.
+### 2. Create `package.toml`
+
+This is the PackageSpec v1 source of truth. It is strict TOML: no shell execution, no imports, no inheritance, and no package-specific workflow logic.
 
 Naming conventions:
 
-- Keep the package directory name identical to `PKGNAME`.
+- Keep the package directory name identical to `name`.
 - Prefer kebab-case package names. Versioned library packages may include a dot when that matches Arch naming conventions, such as `wlroots0.20-vmwgfx`.
-- Let `-bin` in `PKGNAME` communicate binary packaging; keep `PKGDESC` focused on the software itself rather than adding redundant `(Binary)` wording.
-- Include the architecture in architecture-specific source rename fields, for example `SOURCE_RENAME_X86_64='${pkgname}-${pkgver}-x86_64.tar.gz'`.
+- Let `-bin` in the package name communicate binary packaging; keep `desc` focused on the software itself rather than adding redundant `(Binary)` wording.
+- Include the architecture in architecture-specific source rename values, for example `source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''` under `[upstream.assets.x86_64]`.
 
-Typical fields include:
+Typical binary package spec:
 
-```bash
-PACKAGE_SPEC_VERSION=1
+```toml
+spec_version = 1
+name = "my-package-name"
+template = "binary-archive"
 
-PKGNAME=my-package-name
-PACKAGE_TEMPLATE=binary-archive
-UPSTREAM_TYPE=github-release-assets
+[metadata]
+desc = "My package description"
+url = "https://github.com/upstream/project"
+licenses = ["MIT"]
+arches = ["x86_64"]
+depends = []
+makedepends = []
+checkdepends = []
+optdepends = []
+options = ["!strip"]
+provides = ["my-package-name"]
+conflicts = ["my-package-name"]
+validpgpkeys = []
 
-PKGDESC="My package description"
-URL="https://github.com/upstream/project"
-LICENSES=('MIT')
-ARCHES=('x86_64')
-DEPENDS=()
-MAKEDEPENDS=()
-CHECKDEPENDS=()
-OPTDEPENDS=()
-OPTIONS=('!strip')
-PROVIDES=('my-package-name')
-CONFLICTS=('my-package-name')
-VALIDPGPKEYS=()
+[upstream]
+type = "github-release-assets"
+repo = "upstream-user/project"
+tag_prefix = "v"
 
-UPSTREAM_REPO_USER="upstream-user"
-UPSTREAM_REPO_NAME="project"
-UPSTREAM_TAG_PREFIX="v"
+[upstream.assets.x86_64]
+selector = '''^project_.*_linux_amd64\.tar\.gz$'''
+source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
 
-ASSET_SELECTOR_X86_64='^project_.*_linux_amd64\.tar\.gz$'
-SOURCE_RENAME_X86_64='${pkgname}-${pkgver}-x86_64.tar.gz'
+[package]
+binary_name = "my-binary"
+binary_source_path = "my-binary"
+install_bin_path = "/usr/bin/my-binary"
+wrapper_source_path = "my-wrapper"
+wrapper_install_path = "/usr/bin/my-wrapper"
 
-BINARY_NAME=my-binary
-INSTALL_BIN_PATH=/usr/bin/my-binary
-BINARY_SOURCE_PATH=my-binary
-WRAPPER_SOURCE_PATH=my-wrapper
-WRAPPER_INSTALL_PATH=/usr/bin/my-wrapper
+[files]
+local = ["files/my-wrapper"]
+docs = []
+licenses = ["LICENSE"]
 
-LOCAL_FILES=('files/my-wrapper')
-DOC_FILES=()
-LICENSE_FILES=('LICENSE')
-TEST_PATHS=()
-TEST_EXECUTABLES=()
-TEST_COMMANDS=('/usr/bin/my-binary --version')
+[install]
+mode = "generated"
 
-INSTALL_MODE=generated
-SERVICE_MODE=none
+[service]
+mode = "none"
+
+[tests]
+commands = ["/usr/bin/my-binary --version"]
 ```
 
 Useful optional fields:
 
-- `PACKAGING_REPO_URL` — overrides the dedicated `# Packaging Repo:` comment added to rendered `PKGBUILD`s. This is separate from the AUR `url` metadata field, which should still point at upstream.
-- `BINARY_SOURCE_PATH` — path inside the extracted source archive to install as the main binary. Glob patterns are supported for archives with versioned top-level directories. Use single-quoted template placeholders such as `'${pkgname}-${pkgver}-x86_64'`; do not cross-reference other PackageSpec variables.
-- `WRAPPER_SOURCE_PATH`, `WRAPPER_INSTALL_PATH`, `WRAPPER_MODE` — install an additional wrapper script alongside the main binary.
-- `TEST_COMMANDS` — commands executed after install during smoke checks.
+- `packaging_repo_url` — overrides the dedicated `# Packaging Repo:` comment added to rendered `PKGBUILD`s. This is separate from the AUR `url` metadata field, which should still point at upstream.
+- `[package] binary_source_path` — path inside the extracted source archive to install as the main binary. Glob patterns are supported for archives with versioned top-level directories. Use literal TOML strings for template placeholders such as `'''${pkgname}-${pkgver}-x86_64'''`; do not cross-reference other PackageSpec values.
+- `[package] wrapper_source_path`, `wrapper_install_path`, `wrapper_mode` — install an additional wrapper script alongside the main binary.
+- `[tests] commands` — commands executed after install during smoke checks.
+- `[state] persist` — state keys from `STATE_*` hook outputs that should be rendered into generated packaging files.
 
-For packages whose binary assets are built by this repository first, keep the AUR side as `PACKAGE_TEMPLATE=binary-archive` and add a declarative binary-release block instead of a package-specific workflow:
+### 3. Add Binary-Release Producer Configuration When Needed
 
-```bash
-BINARY_RELEASE_ENABLED=true
-BINARY_RELEASE_TEMPLATE=source-cargo
-BINARY_RELEASE_REV=1
-BINARY_RELEASE_VERSION_TEMPLATE='${upstream_version}.r${release_rev}'
-BINARY_RELEASE_TAG_PREFIX=my-package-name-v
-BINARY_RELEASE_REPO=orange-guo/aur-packages
-BINARY_RELEASE_ARCHES=('x86_64')
-BINARY_RELEASE_ASSET_X86_64='${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'
+For packages whose binary assets are built by this repository first, keep the AUR side as `template = "binary-archive"` and add a declarative `[binary_release]` component instead of a package-specific workflow:
 
-BINARY_RELEASE_UPSTREAM_TYPE=github-source-archive
-BINARY_RELEASE_UPSTREAM_REPO_USER=upstream-user
-BINARY_RELEASE_UPSTREAM_REPO_NAME=upstream-project
-BINARY_RELEASE_UPSTREAM_TAG_PREFIX=v
-BINARY_RELEASE_SOURCE_DIR='upstream-project-${upstream_version}'
-BINARY_RELEASE_PATCH_FILES=('files/0001-example.patch')
-BINARY_RELEASE_MAKEDEPENDS=('ca-certificates' 'curl' 'git' 'patch' 'rust' 'tar')
-BINARY_RELEASE_CARGO_BUILD_ARGS=('--release' '--frozen')
-BINARY_RELEASE_RUN_CHECK=false
-BINARY_RELEASE_ARCHIVE_FILES=(
-    'target/release/my-binary:my-binary:755'
-    'LICENSE:LICENSE:644'
-)
+```toml
+[binary_release]
+enabled = true
+template = "source-cargo"
+rev = 1
+version_template = '''${upstream_version}.r${release_rev}'''
+tag_prefix = "my-package-name-v"
+repo = "orange-guo/aur-packages"
+arches = ["x86_64"]
+source_dir = '''upstream-project-${upstream_version}'''
+patch_files = ["files/0001-example.patch"]
+makedepends = ["ca-certificates", "curl", "git", "patch", "rust", "tar"]
+cargo_build_args = ["--release", "--frozen"]
+run_check = false
+archive_files = [
+  "target/release/my-binary:my-binary:755",
+  "LICENSE:LICENSE:644",
+]
 
-UPSTREAM_REPO_USER=orange-guo
-UPSTREAM_REPO_NAME=aur-packages
-UPSTREAM_RELEASE_TAG_PREFIX=my-package-name-v
-UPSTREAM_TAG_PREFIX=my-package-name-v
-UPSTREAM_ASSET_NAME_X86_64='${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'
+[binary_release.upstream]
+type = "github-source-archive"
+repo = "upstream-user/upstream-project"
+tag_prefix = "v"
+
+[binary_release.assets.x86_64]
+name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''
+
+[upstream]
+type = "github-release-assets"
+repo = "orange-guo/aur-packages"
+release_tag_prefix = "my-package-name-v"
+tag_prefix = "my-package-name-v"
+
+[upstream.assets.x86_64]
+asset_name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''
 ```
 
-`BINARY_RELEASE_REV` is part of `pkgver`. Bump it when the patchset or build recipe changes without an upstream version change. The generic `.github/workflows/build-binary-releases.yml` workflow discovers packages with `BINARY_RELEASE_ENABLED=true`, builds the configured assets, publishes them to GitHub Releases, and then the normal AUR package pipeline consumes those release assets.
+`rev` is part of `pkgver`. Bump it when the patchset or build recipe changes without an upstream version change. The generic `.github/workflows/build-binary-releases.yml` workflow discovers packages with `[binary_release] enabled = true`, builds the configured assets, publishes them to GitHub Releases, and then the normal AUR package pipeline consumes those release assets.
 
-### 3. Add Overrides Only If Needed
+### 4. Add Overrides Only If Needed
 
 #### `hooks.sh`
+
 Add this only when the built-in upstream resolvers are not enough.
 
 Current rule: special upstream logic should live in `resolve_upstream_state()`.
@@ -127,18 +145,32 @@ resolve_upstream_state() {
 }
 ```
 
-You may also set additional `STATE_*` variables for template rendering. If a state value must be preserved in the rendered `PKGBUILD`, declare it in `PERSIST_STATE_KEYS`, for example `PERSIST_STATE_KEYS=('BINARY_TAG')`.
+You may also set additional `STATE_*` variables for template rendering. If a state value must be preserved in the rendered `PKGBUILD`, declare the suffix in TOML, for example:
+
+```toml
+[state]
+persist = ["BINARY_TAG"]
+```
+
+Hooks must not mutate PackageSpec fields such as `BINARY_SOURCE_PATH`, service settings, file lists, or template-specific options. If a hook needs to do that, add a generic framework field instead.
 
 #### `files/`
+
 Use this for static assets such as:
-- `LICENSE`
+
+- licenses
+- wrappers
 - systemd service units
 - static `.install` scripts
+- package patches
 - other local packaging files
 
-### 4. Pick the Right Template
+Declare local files by semantic role in `package.toml`; do not blindly include everything under `files/`.
+
+### 5. Pick the Right Components
 
 Current built-in packaging templates:
+
 - `binary-archive` — zip/tar.gz style binary packages
 - `deb-repack` — `.deb` repackaging
 - `appimage-desktop` — AppImage extraction plus desktop/icon setup
@@ -146,39 +178,45 @@ Current built-in packaging templates:
 
 Typical extra fields for `source-meson`:
 
-```bash
-SOURCE_RENAME='${pkgname}'
-SOURCE_DIR='${pkgname}'
-BUILD_DIR=build
-PATCH_FILES=('files/0001-example.patch')
-MESON_OPTIONS=('-Dexamples=false')
-RUN_CHECK=false
-CHECK_ARGS=()
+```toml
+[build]
+source_rename = '''${pkgname}'''
+source_dir = '''${pkgname}'''
+build_dir = "build"
+meson_options = ["-Dexamples=false"]
+run_check = false
+check_args = []
+
+[files]
+patches = ["files/0001-example.patch"]
 ```
 
 Other template-specific fields:
 
-- `deb-repack`: `DEB_RELOCATE_USR_LOCAL=true`
-- `appimage-desktop`: `APPIMAGE_APPDIR_NAME`, `DESKTOP_EXEC_REWRITE`, `DESKTOP_NAME_REWRITE`, `DESKTOP_CANDIDATES`, `ICON_CANDIDATES`
-- `binary-archive`: `WRAPPER_*`, `BINARY_SOURCE_PATH`; `BINARY_SOURCE_PATH`, `DOC_FILES`, and `LICENSE_FILES` may use glob patterns inside the extracted source archive.
+- `deb-repack`: `[build] deb_relocate_usr_local = true`
+- `appimage-desktop`: `[build] appimage_appdir_name`, `desktop_exec_rewrite`, `desktop_name_rewrite`, `desktop_candidates`, `icon_candidates`
+- `binary-archive`: `[package] wrapper_*`, `binary_source_path`; `[files] docs` and `[files] licenses` may use glob patterns inside the extracted source archive.
 
 Current built-in upstream resolvers:
+
 - `github-release-assets`
 - `custom-hook`
 
-`github-release-assets` can consume either the latest release or a release family. Set `UPSTREAM_RELEASE_TAG_PREFIX` plus `UPSTREAM_ASSET_NAME_<ARCH>` to select the newest release whose tag starts with the prefix and contains the exact expected asset names.
+`github-release-assets` can consume either the latest release or a release family. Set `[upstream] release_tag_prefix` plus `[upstream.assets.<arch>] asset_name` to select the newest release whose tag starts with the prefix and contains the exact expected asset names.
 
 Template-driven package validation automatically checks common installed outputs such as:
-- `INSTALL_BIN_PATH`
+
+- `[package] install_bin_path`
 - generated or static service files
-- appimage desktop entries
+- AppImage desktop entries
 - license files under `/usr/share/licenses/${PKGNAME}/`
 
-Use `TEST_PATHS`, `TEST_EXECUTABLES`, and `TEST_COMMANDS` only when a package needs extra smoke-check assertions beyond the template defaults.
+Use `[tests] paths`, `[tests] executables`, and `[tests] commands` only when a package needs extra smoke-check assertions beyond the template defaults.
 
-`TEST_PATHS` and `TEST_EXECUTABLES` must contain absolute installed paths. `TEST_EXECUTABLES` checks that the installed path exists, is executable, and is owned by the package. `TEST_COMMANDS` executes the provided commands after install.
+`[tests] paths` and `[tests] executables` must contain absolute installed paths. Executable checks verify that the installed path exists, is executable, and is owned by the package. Commands run after install.
 
-### 5. Local Verification
+### 6. Local Verification
+
 Before committing, test the package locally from the repository root.
 
 Every package-affecting change must pass both package validation and publish-path dry-run before it is reported as complete:
@@ -200,21 +238,25 @@ Run `build-binary-release` before `run-publish`/`run-test` for self-built `-bin`
 
 This is the smallest meaningful test in this repo. It resolves upstream state, renders a temporary `PKGBUILD`, refreshes checksums, generates `.SRCINFO`, and verifies the build.
 
-`run-test` is the stronger validation path. It runs in an Arch container, builds the package, installs it with `pacman -U`, and checks the installed files. The scheduled AUR publish workflow now uses that same package validation path before publishing package updates.
+`run-test` is the stronger validation path. It runs in an Arch container, builds the package, installs it with `pacman -U`, and checks the installed files. The scheduled AUR publish workflow uses that same package validation path before publishing package updates.
 
 If you manually use `run-publish --verify-install`, prefer doing so inside CI or an ephemeral container rather than on a long-lived host system.
 
-### 6. Update Documentation
+### 7. Update Documentation
+
 When adding or removing packages, update `README.md`.
 
-### 7. Commit & Push
+### 8. Commit & Push
+
 Commit the package directory and docs changes.
 
 ## 🔄 Maintenance
 
 ### How updates work
+
 The scheduled workflow does this for each package:
-1. Discover package directories by PackageSpec v1 `package.conf`
+
+1. Discover package directories by PackageSpec v1 `package.toml`
 2. Read current package state from the AUR repo
 3. Resolve upstream version and asset URLs
 4. Render a temporary `PKGBUILD`
@@ -224,6 +266,7 @@ The scheduled workflow does this for each package:
 8. Publish to AUR only if package validation passes
 
 ### Packaging-only changes
+
 If upstream version stays the same but rendered package contents change, the automation bumps `pkgrel` based on the current AUR repo state.
 
 ## 🧩 Special Upstreams
@@ -231,9 +274,10 @@ If upstream version stays the same but rendered package contents change, the aut
 If a package cannot use `github-release-assets`, implement `hooks.sh` with `resolve_upstream_state()`.
 
 Rules:
+
 - It must set `RESOLVED_VERSION`
 - It may set `RESOLVED_SOURCE_URL`, `RESOLVED_SOURCE_URL_X86_64`, `RESOLVED_SOURCE_URL_AARCH64`, and `STATE_*`
-- It should not edit generated `PKGBUILD` files directly; prefer `STATE_*` plus `PERSIST_STATE_KEYS` instead
+- It should not edit generated `PKGBUILD` files directly; prefer `STATE_*` plus `[state] persist` instead
 - It should fail with a non-zero status on error
 
 ## 📏 Technical Standards
@@ -243,23 +287,26 @@ Rules:
 ```text
 packages/
   package-name/
-    package.conf
+    package.toml
     hooks.sh        # optional
     files/          # optional
 ```
 
 ### Generated files
+
 - Do **NOT** commit `.SRCINFO`
 - Do **NOT** commit generated `PKGBUILD`
-- Treat `package.conf` as the canonical PackageSpec v1 definition
+- Treat `package.toml` as the canonical PackageSpec v1 definition
 
 ### Service files and install scripts
-- Prefer `INSTALL_MODE=generated` for ordinary user-service packages
+
+- Prefer `[install] mode = "generated"` for ordinary user-service packages
 - Use static files under `files/` when the install messaging is unusual or package-specific
 - If a service is installed, the install guidance must clearly distinguish User Level vs System Level service management
 
 ### Security & scripting
+
 - Validate package paths and names
 - Keep special logic in `hooks.sh`, not in generated files
 - Build as non-root `builder`
-- Prefer simple, top-level declarations in `package.conf`
+- Prefer declarative component fields in `package.toml` over new package-specific shell branches
