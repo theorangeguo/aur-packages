@@ -4,7 +4,7 @@ This document explains how this repository turns PackageSpec v1 `package.toml` d
 
 ## 1. Source of Truth
 
-Each package directory keeps only the declarative inputs:
+Each package directory keeps only declarative package-local state:
 
 - package directories live under `packages/<pkgname>/`
 
@@ -32,7 +32,8 @@ flowchart TD
 
     B --> G[normalized package model]
     G --> D
-    D --> F
+    D --> M[prepare declared artifacts]
+    M --> F
     G --> F
     F --> H[render PKGBUILD / .SRCINFO / optional .install]
     H --> I[build package with makepkg]
@@ -41,18 +42,7 @@ flowchart TD
     K --> L[publish rendered files to AUR]
 ```
 
-The critical point is that **publish is gated by the same package validation path used in pull requests**.
-
-Some `-bin` packages use this repository as the binary-release producer before the normal AUR pipeline consumes the asset. Those packages declare `[binary_release] enabled = true` in `package.toml`; the generic binary-release workflow builds the upstream source in an Arch container, applies package-local patches, uploads a GitHub Release asset, and then the regular `binary-archive` package template downloads that asset during AUR validation/publish.
-
-```mermaid
-flowchart LR
-    A[package.toml binary_release component] --> B[build-binary-releases.yml]
-    B --> C[source-cargo producer]
-    C --> D[GitHub Release asset]
-    D --> E[github-release-assets resolver]
-    E --> F[binary-archive AUR package]
-```
+The critical point is that **publish is gated by the same package validation path used in pull requests**. Packages that need repo-built products declare them under `[artifacts]`; the normal package lifecycle either verifies an existing artifact, builds a local artifact for validation, or publishes the missing GitHub Release artifact before rendering the AUR package.
 
 ## 3. Main Entry Points
 
@@ -60,19 +50,16 @@ flowchart LR
 |---|---|
 | `python3 scripts/aurpkg.py discover` | Find all package directories that contain PackageSpec v1 `package.toml` |
 | `python3 scripts/aurpkg.py detect-updates` | Resolve upstream state without AUR access and emit a targeted update matrix |
-| `python3 scripts/aurpkg.py discover-binary-releases` | Find packages with `[binary_release] enabled = true` |
-| `python3 scripts/aurpkg.py build-binary-release <pkgname-or-path>` | Build and publish self-built binary-release assets for one package |
+| `python3 scripts/aurpkg.py prepare-artifacts <pkgname-or-path>` | Resolve, build, check, or publish declared package artifacts for one package |
 | `python3 scripts/aurpkg.py preflight <pkgname-or-path>` | Resolve upstream metadata and asset selectors without building or publishing |
 | `python3 scripts/aurpkg.py run-test <pkgname-or-path>` | Build, install, and smoke-check one package |
 | `python3 scripts/aurpkg.py run-publish <pkgname-or-path> ...` | Resolve upstream state, render packaging outputs, optionally run package validation, and publish to AUR |
 | `scripts/ci.sh package-test-*` | CI entrypoint for package validation workflow bootstrap and dispatch |
 | `scripts/ci.sh aur-publish-*` | CI entrypoint for AUR publish workflow bootstrap and dispatch |
-| `scripts/ci.sh binary-release-*` | CI entrypoint for binary-release workflow bootstrap and dispatch |
-| `.github/workflows/build-binary-releases.yml` | Scheduled/manual/branch-push producer workflow for repo-built binary-release assets |
 | `.github/workflows/package-test.yml` | Pull request / push validation workflow |
 | `.github/workflows/aur-publish.yml` | Scheduled/manual publish workflow |
 
-There are three workflow files because they have different GitHub Actions concerns: triggers, permissions, secrets, container usage, and concurrency. They should remain thin event surfaces. Shared CI bootstrap and argument wiring belongs in `scripts/ci.sh`; package framework behavior belongs in `scripts/aurpkg.py`.
+The workflow files are thin event surfaces for different GitHub Actions concerns: triggers, permissions, secrets, container usage, and concurrency. Shared CI bootstrap and argument wiring belongs in `scripts/ci.sh`; package framework behavior belongs in `scripts/aurpkg.py`.
 
 Scheduled publishing starts with the update detector. Detector state is only an optimization: it records resolved upstream fingerprints so scheduled runs can avoid unnecessary AUR access, but the publish path still re-resolves upstream and compares against the live AUR repo before publishing.
 
@@ -83,15 +70,14 @@ The shared build and smoke-check logic lives in `scripts/aurpkg.py`.
 It is responsible for:
 
 1. dispatching upstream resolution
-2. rendering the temporary workspace
-3. prefetching resolved remote sources into `SRCDEST`
-4. building with `makepkg`
-5. installing built packages with `pacman -U`
-6. running template-driven smoke checks
+2. preparing declared package artifacts
+3. rendering the temporary workspace
+4. prefetching resolved remote sources into `SRCDEST`
+5. building with `makepkg`
+6. installing built packages with `pacman -U`
+7. running template-driven smoke checks
 
 Both validation and publish call that same Python pipeline.
-
-The binary-release producer is separate from the AUR package pipeline, but it is implemented in the same `scripts/aurpkg.py` CLI. This keeps package-specific binary-release asset recipes declarative in `package.toml` rather than in package-specific workflow YAML.
 
 For validation, discovery is change-aware:
 
@@ -105,14 +91,13 @@ For scheduled publishing, each `aur-publish.yml` package job runs a metadata pre
 flowchart TD
     A[package-test.yml] --> B[scripts/ci.sh package-test-run]
     C[aur-publish.yml] --> D[scripts/ci.sh aur-publish-run]
-    E[build-binary-releases.yml] --> F[scripts/ci.sh binary-release-run]
 
     B --> G[scripts/aurpkg.py package pipeline]
     D --> G
-    F --> R[scripts/aurpkg.py binary-release producer]
 
     G --> H[resolve]
-    H --> I[render]
+    H --> Q[prepare artifacts]
+    Q --> I[render]
     I --> J[prefetch sources]
     J --> K[build]
     K --> L[install]
@@ -129,12 +114,13 @@ flowchart TD
 `run-test` is the thinner path:
 
 - resolve current upstream state
+- prepare declared artifacts in safe mode (`local` in CI package validation)
 - render a temporary workspace
 - build the package
 - install it in the test environment
 - verify expected installed outputs
 
-It never stages or pushes AUR changes.
+It never stages or pushes AUR changes. `run-test` defaults to `readonly` artifact preparation for local CLI use; CI package validation uses `--artifact-mode local` so artifact recipes can be validated without publishing artifacts.
 
 ### Publish path
 
@@ -143,17 +129,19 @@ It never stages or pushes AUR changes.
 1. clone or initialize the AUR repo
 2. read the current AUR `pkgver` / `pkgrel`
 3. resolve the current upstream version
-4. render the candidate packaging outputs
-5. build the candidate package
-6. if requested, run package validation for the candidate package
-7. sync rendered files into the staged AUR repo
-8. bump `pkgrel` if packaging changed without an upstream version change
-9. commit and push to AUR
+4. prepare declared artifacts, publishing missing artifact assets when needed
+5. render the candidate packaging outputs
+6. build the candidate package
+7. if requested, run package validation for the candidate package
+8. sync rendered files into the staged AUR repo
+9. bump `pkgrel` if packaging changed without an upstream version change
+10. commit and push to AUR
 
 ```mermaid
 flowchart TD
     A[load AUR state] --> B[resolve upstream]
-    B --> C[render candidate workspace]
+    B --> Q[prepare artifacts]
+    Q --> C[render candidate workspace]
     C --> D[build candidate package]
     D --> E[validate candidate package]
     E --> F[sync rendered files into staged AUR repo]
@@ -168,7 +156,7 @@ flowchart TD
 The repository itself remains declarative. Runtime work happens in temporary directories:
 
 - `workspace/` — rendered `PKGBUILD`, `.SRCINFO`, optional generated `.install`, copied `files/`
-- `SRCDEST/` — prefetched upstream downloads and checksummed sources
+- `SRCDEST/` — prefetched upstream downloads, local artifacts, and checksummed sources
 - `PKGDEST/` — built package archives
 - `aur/` — cloned or initialized AUR git repository used for staging/push
 
@@ -205,11 +193,9 @@ The checks confirm installation shape, not full runtime behavior.
 ## 9. Practical Commands
 
 ```bash
-# Build/publish repo-produced binary-release assets
-python3 scripts/aurpkg.py build-binary-release <pkgname-or-path>
-
-# Dry-run the binary-release producer
-python3 scripts/aurpkg.py build-binary-release <pkgname-or-path> --dry-run
+# Check or publish declared package artifacts
+python3 scripts/aurpkg.py prepare-artifacts <pkgname-or-path> --artifact-mode readonly
+python3 scripts/aurpkg.py prepare-artifacts <pkgname-or-path> --artifact-mode publish
 
 # Local package validation
 python3 scripts/aurpkg.py run-test <pkgname-or-path>

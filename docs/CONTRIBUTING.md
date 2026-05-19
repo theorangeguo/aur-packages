@@ -85,21 +85,37 @@ Useful optional fields:
 - `[tests] commands` — commands executed after install during smoke checks.
 - `[state] persist` — state keys from `STATE_*` hook outputs that should be rendered into generated packaging files.
 
-### 3. Add Binary-Release Producer Configuration When Needed
+### 3. Add Artifact Preparation When Needed
 
-For packages whose binary assets are built by this repository first, keep the AUR side as `template = "binary-archive"` and add a declarative `[binary_release]` component instead of a package-specific workflow:
+For packages whose consumed archives are produced by this repository first, keep the AUR side as `template = "binary-archive"` and declare package artifacts instead of adding a package-specific workflow:
 
 ```toml
-[binary_release]
-enabled = true
-template = "source-cargo"
+[upstream]
+type = "github-release"
+repo = "upstream-user/upstream-project"
+tag_prefix = "v"
+
+[package]
+binary_name = "my-binary"
+binary_source_path = "my-binary"
+install_bin_path = "/usr/bin/my-binary"
+version_artifact = "my-binary-archive"
+
+[sources.my-binary-archive]
+artifact = "my-binary-archive"
+arch = "x86_64"
+rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+
+[artifacts.my-binary-archive]
+type = "archive"
 rev = 1
-version_template = '''${upstream_version}.r${release_rev}'''
-tag_prefix = "my-package-name-v"
-repo = "orange-guo/aur-packages"
+version_template = '''${upstream_version}.r${artifact_rev}'''
 arches = ["x86_64"]
+
+[artifacts.my-binary-archive.recipe]
+type = "cargo-build"
 source_dir = '''upstream-project-${upstream_version}'''
-patch_files = ["files/0001-example.patch"]
+patches = ["files/0001-example.patch"]
 makedepends = ["ca-certificates", "curl", "git", "patch", "rust", "tar"]
 cargo_build_args = ["--release", "--frozen"]
 run_check = false
@@ -108,25 +124,23 @@ archive_files = [
   "LICENSE:LICENSE:644",
 ]
 
-[binary_release.upstream]
+[artifacts.my-binary-archive.recipe.source]
 type = "github-source-archive"
 repo = "upstream-user/upstream-project"
 tag_prefix = "v"
 
-[binary_release.assets.x86_64]
-name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''
-
-[upstream]
-type = "github-release-assets"
+[artifacts.my-binary-archive.storage]
+type = "github-release"
 repo = "orange-guo/aur-packages"
-release_tag_prefix = "my-package-name-v"
 tag_prefix = "my-package-name-v"
 
-[upstream.assets.x86_64]
+[artifacts.my-binary-archive.outputs.x86_64]
 asset_name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''
 ```
 
-`rev` is part of `pkgver`. Bump it when the patchset or build recipe changes without an upstream version change. The generic `.github/workflows/build-binary-releases.yml` workflow discovers packages with `[binary_release] enabled = true`, builds the configured assets, publishes them to GitHub Releases, and then the normal AUR package pipeline consumes those release assets.
+`rev` is part of the artifact version. Bump it when the patchset or build recipe changes without an upstream version change. `run-publish` can publish missing artifacts, while `run-test` defaults to `readonly` artifact mode so validation does not mutate GitHub Releases. Use `run-test --artifact-mode local` when you need to validate the artifact recipe itself without publishing it.
+
+Publishing artifacts requires GitHub CLI authentication (`gh`) with permission to create or update releases in the configured storage repo.
 
 ### 4. Add Overrides Only If Needed
 
@@ -199,6 +213,7 @@ Other template-specific fields:
 
 Current built-in upstream resolvers:
 
+- `github-release`
 - `github-release-assets`
 - `custom-hook`
 
@@ -222,8 +237,7 @@ Before committing, test the package locally from the repository root.
 Every package-affecting change must pass both package validation and publish-path dry-run before it is reported as complete:
 
 ```bash
-python3 scripts/aurpkg.py build-binary-release my-package-name --dry-run
-python3 scripts/aurpkg.py build-binary-release my-package-name --skip-publish
+python3 scripts/aurpkg.py prepare-artifacts my-package-name --artifact-mode readonly
 python3 scripts/aurpkg.py run-publish my-package-name --dry-run
 python3 scripts/aurpkg.py run-test my-package-name
 ```
@@ -234,7 +248,7 @@ The scheduled publish workflow uses `detect-updates` first. Detection resolves u
 
 The CLI accepts either a bare package name like `my-package-name` or an explicit path like `packages/my-package-name`.
 
-Run `build-binary-release` before `run-publish`/`run-test` for self-built `-bin` packages when the expected GitHub release asset does not exist yet.
+Run `prepare-artifacts --artifact-mode publish` for self-built `-bin` packages when the expected GitHub Release artifact does not exist yet and you want to publish it manually before `run-publish`/`run-test`.
 
 This is the smallest meaningful test in this repo. It resolves upstream state, renders a temporary `PKGBUILD`, refreshes checksums, generates `.SRCINFO`, and verifies the build.
 

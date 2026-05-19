@@ -3,7 +3,7 @@
 
 This intentionally keeps the framework implementation in one Python file. The
 package model, discovery, update detection, rendering, build/test, AUR sync, and
-binary-release orchestration live here.
+artifact preparation live here.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ SUPPORTED_SPEC_VERSION = 1
 VALID_ARCH_RE = re.compile(r"^[A-Za-z0-9_+-]+$")
 VALID_ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 VALID_PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9._+-]+$")
-VALID_PACKAGE_INPUT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-VALID_PACKAGE_PATH_INPUT_RE = re.compile(r"^packages/[A-Za-z0-9._-]+$")
+VALID_COMPONENT_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+VALID_PACKAGE_PATH_RE = re.compile(r"^packages/[A-Za-z0-9._-]+$")
 TEMPLATE_PLACEHOLDER_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -56,7 +56,8 @@ ROOT_KEYS = {
     "service",
     "state",
     "tests",
-    "binary_release",
+    "artifacts",
+    "sources",
 }
 
 TABLE_KEYS = {
@@ -91,6 +92,7 @@ TABLE_KEYS = {
         "wrapper_source_path",
         "wrapper_install_path",
         "wrapper_mode",
+        "version_artifact",
     },
     "build": {
         "source_rename",
@@ -112,30 +114,35 @@ TABLE_KEYS = {
     "service": {"mode", "scope", "name", "file", "exec", "restart", "restart_sec"},
     "state": {"persist"},
     "tests": {"paths", "executables", "commands"},
-    "binary_release": {
-        "enabled",
-        "template",
-        "rev",
-        "version_template",
-        "tag_prefix",
-        "repo",
-        "arches",
-        "upstream",
-        "source_dir",
-        "patch_files",
-        "makedepends",
-        "cargo_fetch_args",
-        "cargo_build_args",
-        "cargo_check_args",
-        "run_check",
-        "archive_files",
-        "assets",
-    },
-    "binary_release.upstream": {"type", "repo", "repo_user", "repo_name", "tag_prefix"},
 }
 
 ASSET_KEYS = {"selector", "asset_name", "source_rename"}
-BINARY_RELEASE_ASSET_KEYS = {"name"}
+ARTIFACT_KEYS = {
+    "type",
+    "rev",
+    "version_template",
+    "arches",
+    "recipe",
+    "storage",
+    "outputs",
+}
+ARTIFACT_RECIPE_KEYS = {
+    "type",
+    "source",
+    "source_dir",
+    "patches",
+    "makedepends",
+    "cargo_fetch_args",
+    "cargo_build_args",
+    "cargo_check_args",
+    "run_check",
+    "archive_files",
+}
+ARTIFACT_RECIPE_SOURCE_KEYS = {"type", "repo", "repo_user", "repo_name", "tag_prefix"}
+ARTIFACT_STORAGE_KEYS = {"type", "repo", "repo_user", "repo_name", "tag_prefix"}
+ARTIFACT_OUTPUT_KEYS = {"asset_name"}
+SOURCE_KEYS = {"artifact", "arch", "rename"}
+ARTIFACT_MODES = {"readonly", "local", "publish", "force"}
 
 
 class SpecError(Exception):
@@ -433,6 +440,55 @@ def validate_arch_tables(assets: dict[str, Any], allowed: set[str], context: str
             optional_string(table, key, f"{context}.{arch}")
 
 
+def validate_artifact_tables(artifacts: dict[str, Any], context: str) -> None:
+    for artifact_name, table in artifacts.items():
+        if not VALID_COMPONENT_NAME_RE.fullmatch(artifact_name):
+            fail(f"Unsupported artifact name in {context}: {artifact_name}")
+        if not isinstance(table, dict):
+            fail(f"{context}.{artifact_name} must be a TOML table")
+        artifact_context = f"{context}.{artifact_name}"
+        reject_unknown_keys(table, ARTIFACT_KEYS, artifact_context)
+        require_string(table, "type", artifact_context)
+        optional_int_or_string(table, "rev", artifact_context)
+        optional_string(table, "version_template", artifact_context)
+        optional_string_list(table, "arches", artifact_context)
+
+        recipe = expect_nested_table(table, "recipe", artifact_context)
+        reject_unknown_keys(recipe, ARTIFACT_RECIPE_KEYS, f"{artifact_context}.recipe")
+        require_string(recipe, "type", f"{artifact_context}.recipe")
+        optional_string(recipe, "source_dir", f"{artifact_context}.recipe")
+        for key in ("patches", "makedepends", "cargo_fetch_args", "cargo_build_args", "cargo_check_args", "archive_files"):
+            optional_string_list(recipe, key, f"{artifact_context}.recipe")
+        optional_bool(recipe, "run_check", f"{artifact_context}.recipe")
+
+        source = expect_nested_table(recipe, "source", f"{artifact_context}.recipe")
+        reject_unknown_keys(source, ARTIFACT_RECIPE_SOURCE_KEYS, f"{artifact_context}.recipe.source")
+        require_string(source, "type", f"{artifact_context}.recipe.source")
+        optional_repo(source, f"{artifact_context}.recipe.source")
+        optional_string(source, "tag_prefix", f"{artifact_context}.recipe.source")
+
+        storage = expect_nested_table(table, "storage", artifact_context)
+        reject_unknown_keys(storage, ARTIFACT_STORAGE_KEYS, f"{artifact_context}.storage")
+        require_string(storage, "type", f"{artifact_context}.storage")
+        optional_repo(storage, f"{artifact_context}.storage")
+        optional_string(storage, "tag_prefix", f"{artifact_context}.storage")
+
+        validate_arch_tables(expect_nested_table(table, "outputs", artifact_context), ARTIFACT_OUTPUT_KEYS, f"{artifact_context}.outputs")
+
+
+def validate_source_tables(sources: dict[str, Any], context: str) -> None:
+    for source_name, table in sources.items():
+        if not VALID_COMPONENT_NAME_RE.fullmatch(source_name):
+            fail(f"Unsupported source name in {context}: {source_name}")
+        if not isinstance(table, dict):
+            fail(f"{context}.{source_name} must be a TOML table")
+        source_context = f"{context}.{source_name}"
+        reject_unknown_keys(table, SOURCE_KEYS, source_context)
+        require_string(table, "artifact", source_context)
+        require_string(table, "arch", source_context)
+        optional_string(table, "rename", source_context)
+
+
 def split_repo(table: dict[str, Any], context: str) -> tuple[str, str] | None:
     if "repo" in table:
         repo = table["repo"]
@@ -505,22 +561,8 @@ def validate_spec(data: dict[str, Any], path: str) -> None:
     for key in TABLE_KEYS["tests"]:
         optional_string_list(tests, key, f"{path} [tests]")
 
-    binary_release = expect_table(data, "binary_release", path)
-    reject_unknown_keys(binary_release, TABLE_KEYS["binary_release"], f"{path} [binary_release]")
-    optional_bool(binary_release, "enabled", f"{path} [binary_release]")
-    for key in ("template", "version_template", "tag_prefix", "repo", "source_dir"):
-        optional_string(binary_release, key, f"{path} [binary_release]")
-    optional_int_or_string(binary_release, "rev", f"{path} [binary_release]")
-    for key in ("arches", "patch_files", "makedepends", "cargo_fetch_args", "cargo_build_args", "cargo_check_args", "archive_files"):
-        optional_string_list(binary_release, key, f"{path} [binary_release]")
-    optional_bool(binary_release, "run_check", f"{path} [binary_release]")
-
-    br_upstream = expect_nested_table(binary_release, "upstream", f"{path} [binary_release]")
-    reject_unknown_keys(br_upstream, TABLE_KEYS["binary_release.upstream"], f"{path} [binary_release.upstream]")
-    optional_string(br_upstream, "type", f"{path} [binary_release.upstream]")
-    optional_repo(br_upstream, f"{path} [binary_release.upstream]")
-    optional_string(br_upstream, "tag_prefix", f"{path} [binary_release.upstream]")
-    validate_arch_tables(expect_nested_table(binary_release, "assets", f"{path} [binary_release]"), BINARY_RELEASE_ASSET_KEYS, f"{path} [binary_release.assets]")
+    validate_artifact_tables(expect_table(data, "artifacts", path), f"{path} [artifacts]")
+    validate_source_tables(expect_table(data, "sources", path), f"{path} [sources]")
     validate_cross_fields(data, path)
 
 
@@ -542,17 +584,108 @@ def validate_cross_fields(data: dict[str, Any], path: str) -> None:
             if not asset.get("source_rename"):
                 fail(f"[upstream.assets.{arch}] requires source_rename in {path}")
 
-    binary_release = data.get("binary_release", {})
-    if binary_release.get("enabled"):
-        br_arches = set(binary_release.get("arches", []))
-        br_assets = binary_release.get("assets", {})
-        for arch in br_assets:
-            if arch not in br_arches:
-                fail(f"[binary_release.assets.{arch}] is not listed in [binary_release] arches in {path}")
-        for arch in br_arches:
-            asset = br_assets.get(arch)
-            if asset is None or not asset.get("name"):
-                fail(f"[binary_release.assets.{arch}] name is required when binary_release is enabled in {path}")
+    artifacts = data.get("artifacts", {})
+    package = data.get("package", {})
+    version_artifact = package.get("version_artifact", "")
+    if version_artifact and version_artifact not in artifacts:
+        fail(f"[package] version_artifact references unknown artifact in {path}: {version_artifact}")
+    sources = data.get("sources", {})
+    source_arches: dict[str, str] = {}
+    for source_name, source in sources.items():
+        arch = source.get("arch", "")
+        if arch not in arches:
+            fail(f"[sources.{source_name}] arch is not listed in [metadata] arches in {path}: {arch}")
+        if arch in source_arches:
+            fail(f"[sources.{source_name}] and [sources.{source_arches[arch]}] both target arch {arch} in {path}")
+        source_arches[arch] = source_name
+        artifact_name = source.get("artifact", "")
+        if artifact_name not in artifacts:
+            fail(f"[sources.{source_name}] references unknown artifact in {path}: {artifact_name}")
+
+    for artifact_name, artifact_table in artifacts.items():
+        artifact_arches = set(artifact_table.get("arches", []))
+        artifact_outputs = artifact_table.get("outputs", {})
+        recipe = artifact_table.get("recipe", {})
+        recipe_source = recipe.get("source", {})
+        if artifact_table.get("type") != "archive":
+            fail(f"[artifacts.{artifact_name}] unsupported type in {path}: {artifact_table.get('type')}")
+        if recipe.get("type") != "cargo-build":
+            fail(f"[artifacts.{artifact_name}.recipe] unsupported type in {path}: {recipe.get('type')}")
+        if not artifact_arches:
+            fail(f"[artifacts.{artifact_name}] arches must not be empty in {path}")
+        for arch in artifact_outputs:
+            if arch not in artifact_arches:
+                fail(f"[artifacts.{artifact_name}.outputs.{arch}] is not listed in [artifacts.{artifact_name}] arches in {path}")
+        for arch in artifact_arches:
+            output = artifact_outputs.get(arch)
+            if output is None or not output.get("asset_name"):
+                fail(f"[artifacts.{artifact_name}.outputs.{arch}] asset_name is required in {path}")
+        if recipe_source.get("type") != "github-source-archive":
+            fail(f"[artifacts.{artifact_name}.recipe.source] unsupported type in {path}: {recipe_source.get('type')}")
+        if not split_repo(recipe_source, f"{path} [artifacts.{artifact_name}.recipe.source]"):
+            fail(f"[artifacts.{artifact_name}.recipe.source] repo is required in {path}")
+        storage = artifact_table.get("storage", {})
+        if storage.get("type") != "github-release":
+            fail(f"[artifacts.{artifact_name}.storage] unsupported type in {path}: {storage.get('type')}")
+        if not split_repo(storage, f"{path} [artifacts.{artifact_name}.storage]"):
+            fail(f"[artifacts.{artifact_name}.storage] repo is required in {path}")
+        if not recipe.get("archive_files"):
+            fail(f"[artifacts.{artifact_name}.recipe] archive_files must not be empty in {path}")
+        for archive_file in recipe.get("archive_files", []):
+            validate_artifact_archive_file(Path(path), archive_file)
+        for source_name, source in sources.items():
+            if source.get("artifact") != artifact_name:
+                continue
+            arch = source.get("arch", "")
+            if arch not in artifact_arches:
+                fail(f"[sources.{source_name}] references artifact {artifact_name}, but {arch} is not listed in [artifacts.{artifact_name}] arches in {path}")
+            if not source.get("rename"):
+                fail(f"[sources.{source_name}] requires rename in {path}")
+
+
+@dataclasses.dataclass
+class ArtifactOutput:
+    asset_name: str
+
+
+@dataclasses.dataclass
+class PackageArtifact:
+    name: str
+    type: str
+    rev: str
+    version_template: str
+    arches: list[str]
+    recipe_type: str
+    recipe_source_type: str
+    recipe_source_repo_user: str
+    recipe_source_repo_name: str
+    recipe_source_tag_prefix: str
+    storage_type: str
+    storage_repo_value: str
+    storage_repo_user: str
+    storage_repo_name: str
+    storage_tag_prefix: str
+    source_dir: str
+    patches: list[str]
+    makedepends: list[str]
+    cargo_fetch_args: list[str]
+    cargo_build_args: list[str]
+    cargo_check_args: list[str]
+    run_check: bool
+    archive_files: list[str]
+    outputs: dict[str, ArtifactOutput]
+    resolved_upstream_version: str = ""
+    resolved_version: str = ""
+    release_tag: str = ""
+    resolved_asset_urls: dict[str, str] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass
+class PackageSource:
+    name: str
+    artifact: str
+    arch: str
+    rename: str
 
 
 @dataclasses.dataclass
@@ -592,6 +725,7 @@ class PackageSpec:
     wrapper_source_path: str
     wrapper_install_path: str
     wrapper_mode: str
+    version_artifact: str
     source_rename: str
     source_dir: str
     build_dir: str
@@ -623,26 +757,8 @@ class PackageSpec:
     test_paths: list[str]
     test_executables: list[str]
     test_commands: list[str]
-    binary_release_enabled: bool
-    binary_release_template: str
-    binary_release_rev: str
-    binary_release_version_template: str
-    binary_release_tag_prefix: str
-    binary_release_repo_value: str
-    binary_release_arches: list[str]
-    binary_release_upstream_type: str
-    binary_release_upstream_repo_user: str
-    binary_release_upstream_repo_name: str
-    binary_release_upstream_tag_prefix: str
-    binary_release_source_dir: str
-    binary_release_patch_files: list[str]
-    binary_release_makedepends: list[str]
-    binary_release_cargo_fetch_args: list[str]
-    binary_release_cargo_build_args: list[str]
-    binary_release_cargo_check_args: list[str]
-    binary_release_run_check: bool
-    binary_release_archive_files: list[str]
-    binary_release_assets: dict[str, str]
+    artifacts: dict[str, PackageArtifact]
+    sources: dict[str, PackageSource]
     resolved_version: str = ""
     resolved_source_url: str = ""
     resolved_source_urls: dict[str, str] = dataclasses.field(default_factory=dict)
@@ -700,22 +816,22 @@ def validate_package_asset_path(pkg: PackageSpec | None, package_dir: Path, defi
         raise CliError(f"{role} must resolve to a file in {definition_path}: {relative_path}")
 
 
-def validate_binary_release_archive_file(config_path: Path, archive_spec: str) -> None:
+def validate_artifact_archive_file(config_path: Path, archive_spec: str) -> None:
     if ":" not in archive_spec:
-        raise CliError(f"BINARY_RELEASE_ARCHIVE_FILES entry must be source:destination[:mode] in {config_path}: {archive_spec}")
+        raise CliError(f"Artifact archive_files entry must be source:destination[:mode] in {config_path}: {archive_spec}")
     parts = archive_spec.split(":")
     if len(parts) not in {2, 3}:
-        raise CliError(f"BINARY_RELEASE_ARCHIVE_FILES mode must not contain ':' in {config_path}: {archive_spec}")
+        raise CliError(f"Artifact archive_files mode must not contain ':' in {config_path}: {archive_spec}")
     source_path, destination_path = parts[0], parts[1]
     file_mode = parts[2] if len(parts) == 3 else "644"
     if not source_path:
-        raise CliError(f"BINARY_RELEASE_ARCHIVE_FILES source is required in {config_path}: {archive_spec}")
+        raise CliError(f"Artifact archive_files source is required in {config_path}: {archive_spec}")
     if not destination_path:
-        raise CliError(f"BINARY_RELEASE_ARCHIVE_FILES destination is required in {config_path}: {archive_spec}")
-    validate_relative_source_pattern("BINARY_RELEASE_ARCHIVE_FILES source", source_path, config_path)
-    validate_relative_source_pattern("BINARY_RELEASE_ARCHIVE_FILES destination", destination_path, config_path)
+        raise CliError(f"Artifact archive_files destination is required in {config_path}: {archive_spec}")
+    validate_relative_source_pattern("artifact archive_files source", source_path, config_path)
+    validate_relative_source_pattern("artifact archive_files destination", destination_path, config_path)
     if not re.fullmatch(r"[0-7]{3,4}", file_mode):
-        raise CliError(f"BINARY_RELEASE_ARCHIVE_FILES mode must be octal in {config_path}: {archive_spec}")
+        raise CliError(f"Artifact archive_files mode must be octal in {config_path}: {archive_spec}")
 
 
 def package_definition_path(package_dir: Path) -> Path | None:
@@ -749,16 +865,62 @@ def collect_all_packages() -> list[str]:
 def canonical_package_dir(package_input: str) -> str:
     value = package_input.removeprefix("./")
     if value.startswith("packages/"):
-        if not VALID_PACKAGE_PATH_INPUT_RE.fullmatch(value):
+        if not VALID_PACKAGE_PATH_RE.fullmatch(value):
             raise CliError(f"Invalid package directory name: {package_input}")
         candidate = REPO_ROOT / value
     else:
-        if not VALID_PACKAGE_INPUT_RE.fullmatch(value):
+        if not VALID_COMPONENT_NAME_RE.fullmatch(value):
             raise CliError(f"Invalid package directory name: {package_input}")
         candidate = PACKAGE_ROOT / value
     if package_definition_path(candidate) is None:
         raise CliError(f"PackageSpec definition not found in {package_path_for_output(candidate)}")
     return package_path_for_output(candidate)
+
+
+def load_package_artifact(artifact_name: str, table: dict[str, Any]) -> PackageArtifact:
+    recipe = table.get("recipe", {})
+    recipe_source = recipe.get("source", {})
+    storage = table.get("storage", {})
+    recipe_source_repo = split_repo(recipe_source, f"[artifacts.{artifact_name}.recipe.source]") or ("", "")
+    storage_repo = split_repo(storage, f"[artifacts.{artifact_name}.storage]") or ("", "")
+    return PackageArtifact(
+        name=artifact_name,
+        type=str_value(table, "type"),
+        rev=str_value(table, "rev", "1") or "1",
+        version_template=str_value(table, "version_template", "${upstream_version}.r${artifact_rev}") or "${upstream_version}.r${artifact_rev}",
+        arches=list_value(table, "arches"),
+        recipe_type=str_value(recipe, "type"),
+        recipe_source_type=str_value(recipe_source, "type"),
+        recipe_source_repo_user=recipe_source_repo[0],
+        recipe_source_repo_name=recipe_source_repo[1],
+        recipe_source_tag_prefix=str_value(recipe_source, "tag_prefix"),
+        storage_type=str_value(storage, "type"),
+        storage_repo_value=str_value(storage, "repo"),
+        storage_repo_user=storage_repo[0],
+        storage_repo_name=storage_repo[1],
+        storage_tag_prefix=str_value(storage, "tag_prefix"),
+        source_dir=str_value(recipe, "source_dir"),
+        patches=list_value(recipe, "patches"),
+        makedepends=list_value(recipe, "makedepends"),
+        cargo_fetch_args=list_value(recipe, "cargo_fetch_args"),
+        cargo_build_args=list_value(recipe, "cargo_build_args"),
+        cargo_check_args=list_value(recipe, "cargo_check_args"),
+        run_check=bool_value(recipe, "run_check", False),
+        archive_files=list_value(recipe, "archive_files"),
+        outputs={
+            arch: ArtifactOutput(asset_name=output.get("asset_name", ""))
+            for arch, output in table.get("outputs", {}).items()
+        },
+    )
+
+
+def load_package_source(source_name: str, table: dict[str, Any]) -> PackageSource:
+    return PackageSource(
+        name=source_name,
+        artifact=str_value(table, "artifact"),
+        arch=str_value(table, "arch"),
+        rename=str_value(table, "rename"),
+    )
 
 
 def load_package(package_input: str) -> PackageSpec:
@@ -777,13 +939,10 @@ def load_package(package_input: str) -> PackageSpec:
     service = data.get("service", {})
     state = data.get("state", {})
     tests = data.get("tests", {})
-    binary_release = data.get("binary_release", {})
-    br_upstream = binary_release.get("upstream", {})
+    artifacts = data.get("artifacts", {})
+    sources = data.get("sources", {})
 
     upstream_repo = split_repo(upstream, "[upstream]") or ("", "")
-    br_repo = split_repo(br_upstream, "[binary_release.upstream]") if br_upstream else None
-    if br_repo is None:
-        br_repo = ("", "")
 
     name = data["name"]
     pkg = PackageSpec(
@@ -822,6 +981,7 @@ def load_package(package_input: str) -> PackageSpec:
         wrapper_source_path=str_value(package, "wrapper_source_path"),
         wrapper_install_path=str_value(package, "wrapper_install_path"),
         wrapper_mode=str_value(package, "wrapper_mode", "755") or "755",
+        version_artifact=str_value(package, "version_artifact"),
         source_rename=str_value(build, "source_rename"),
         source_dir=str_value(build, "source_dir", name) or name,
         build_dir=str_value(build, "build_dir", "build") or "build",
@@ -853,26 +1013,8 @@ def load_package(package_input: str) -> PackageSpec:
         test_paths=list_value(tests, "paths"),
         test_executables=list_value(tests, "executables"),
         test_commands=list_value(tests, "commands"),
-        binary_release_enabled=bool_value(binary_release, "enabled", False),
-        binary_release_template=str_value(binary_release, "template"),
-        binary_release_rev=str_value(binary_release, "rev", "1") or "1",
-        binary_release_version_template=str_value(binary_release, "version_template", "${upstream_version}.r${release_rev}") or "${upstream_version}.r${release_rev}",
-        binary_release_tag_prefix=str_value(binary_release, "tag_prefix", f"{name}-v") or f"{name}-v",
-        binary_release_repo_value=str_value(binary_release, "repo"),
-        binary_release_arches=list_value(binary_release, "arches") or list_value(metadata, "arches"),
-        binary_release_upstream_type=str_value(br_upstream, "type"),
-        binary_release_upstream_repo_user=br_repo[0],
-        binary_release_upstream_repo_name=br_repo[1],
-        binary_release_upstream_tag_prefix=str_value(br_upstream, "tag_prefix"),
-        binary_release_source_dir=str_value(binary_release, "source_dir"),
-        binary_release_patch_files=list_value(binary_release, "patch_files"),
-        binary_release_makedepends=list_value(binary_release, "makedepends"),
-        binary_release_cargo_fetch_args=list_value(binary_release, "cargo_fetch_args"),
-        binary_release_cargo_build_args=list_value(binary_release, "cargo_build_args"),
-        binary_release_cargo_check_args=list_value(binary_release, "cargo_check_args"),
-        binary_release_run_check=bool_value(binary_release, "run_check", False),
-        binary_release_archive_files=list_value(binary_release, "archive_files"),
-        binary_release_assets={arch: asset.get("name", "") for arch, asset in binary_release.get("assets", {}).items()},
+        artifacts={artifact_name: load_package_artifact(artifact_name, artifact_table) for artifact_name, artifact_table in artifacts.items()},
+        sources={source_name: load_package_source(source_name, source_table) for source_name, source_table in sources.items()},
     )
     validate_normalized_package(pkg)
     return pkg
@@ -885,7 +1027,7 @@ def validate_normalized_package(pkg: PackageSpec) -> None:
         raise CliError(f"Package directory must match PKGNAME: {pkg.package_dir.name} != {pkg.name}")
     if pkg.template not in {"binary-archive", "deb-repack", "appimage-desktop", "source-meson"}:
         raise CliError(f"Unsupported PACKAGE_TEMPLATE in {config_path}: {pkg.template}")
-    if pkg.upstream_type not in {"github-release-assets", "custom-hook"}:
+    if pkg.upstream_type not in {"github-release", "github-release-assets", "custom-hook"}:
         raise CliError(f"Unsupported UPSTREAM_TYPE in {config_path}: {pkg.upstream_type}")
     if not pkg.arches:
         raise CliError(f"ARCHES must not be empty in {config_path}")
@@ -901,26 +1043,46 @@ def validate_normalized_package(pkg: PackageSpec) -> None:
         raise CliError(f"Unsupported SERVICE_MODE in {config_path}: {pkg.service_mode}")
     if pkg.service_scope not in {"user", "system"}:
         raise CliError(f"Unsupported SERVICE_SCOPE in {config_path}: {pkg.service_scope}")
-    if pkg.upstream_type == "github-release-assets" and (not pkg.upstream_repo_user or not pkg.upstream_repo_name):
-        raise CliError("UPSTREAM_REPO_USER and UPSTREAM_REPO_NAME are required for github-release-assets")
-    if pkg.binary_release_enabled:
-        if not pkg.binary_release_template:
-            raise CliError("BINARY_RELEASE_TEMPLATE is required when BINARY_RELEASE_ENABLED=true")
-        if pkg.binary_release_template != "source-cargo":
-            raise CliError(f"Unsupported BINARY_RELEASE_TEMPLATE: {pkg.binary_release_template}")
-        if pkg.binary_release_upstream_type != "github-source-archive":
-            raise CliError(f"Unsupported BINARY_RELEASE_UPSTREAM_TYPE: {pkg.binary_release_upstream_type}")
-        if not pkg.binary_release_upstream_repo_user or not pkg.binary_release_upstream_repo_name:
-            raise CliError("BINARY_RELEASE_UPSTREAM_REPO_USER and BINARY_RELEASE_UPSTREAM_REPO_NAME are required for github-source-archive")
-        if not pkg.binary_release_arches:
-            raise CliError("BINARY_RELEASE_ARCHES must not be empty when BINARY_RELEASE_ENABLED=true")
-        if not pkg.binary_release_archive_files:
-            raise CliError("BINARY_RELEASE_ARCHIVE_FILES must not be empty when BINARY_RELEASE_ENABLED=true")
-        for arch in pkg.binary_release_arches:
-            if not pkg.binary_release_assets.get(arch):
-                raise CliError(f"BINARY_RELEASE_ASSET_{shell_var_suffix(arch)} is required when BINARY_RELEASE_ENABLED=true")
-        for archive_file in pkg.binary_release_archive_files:
-            validate_binary_release_archive_file(config_path, archive_file)
+    if pkg.upstream_type in {"github-release", "github-release-assets"} and (not pkg.upstream_repo_user or not pkg.upstream_repo_name):
+        raise CliError(f"UPSTREAM_REPO_USER and UPSTREAM_REPO_NAME are required for {pkg.upstream_type}")
+    if pkg.version_artifact and pkg.version_artifact not in pkg.artifacts:
+        raise CliError(f"VERSION_ARTIFACT references unknown artifact in {config_path}: {pkg.version_artifact}")
+    for artifact_name, artifact in pkg.artifacts.items():
+        if artifact.type != "archive":
+            raise CliError(f"Unsupported artifact type for {artifact_name}: {artifact.type}")
+        if artifact.recipe_type != "cargo-build":
+            raise CliError(f"Unsupported artifact recipe type for {artifact_name}: {artifact.recipe_type}")
+        if artifact.recipe_source_type != "github-source-archive":
+            raise CliError(f"Unsupported artifact recipe source type for {artifact_name}: {artifact.recipe_source_type}")
+        if artifact.storage_type != "github-release":
+            raise CliError(f"Unsupported artifact storage type for {artifact_name}: {artifact.storage_type}")
+        if not artifact.recipe_source_repo_user or not artifact.recipe_source_repo_name:
+            raise CliError(f"Artifact recipe source repo is required for {artifact_name}")
+        if not artifact.storage_repo_user or not artifact.storage_repo_name:
+            raise CliError(f"Artifact storage repo is required for {artifact_name}")
+        if not artifact.arches:
+            raise CliError(f"Artifact arches must not be empty for {artifact_name}")
+        if not artifact.archive_files:
+            raise CliError(f"Artifact recipe archive_files must not be empty for {artifact_name}")
+        for arch in artifact.arches:
+            if arch not in artifact.outputs or not artifact.outputs[arch].asset_name:
+                raise CliError(f"Artifact output asset_name is required for {artifact_name}/{arch}")
+        for archive_file in artifact.archive_files:
+            validate_artifact_archive_file(config_path, archive_file)
+    source_arches: dict[str, str] = {}
+    for source in pkg.sources.values():
+        if source.arch not in pkg.arches:
+            raise CliError(f"Source arch is not listed in ARCHES for {source.name}: {source.arch}")
+        if source.arch in source_arches:
+            raise CliError(f"Sources {source.name} and {source_arches[source.arch]} both target architecture {source.arch}")
+        source_arches[source.arch] = source.name
+        if source.artifact not in pkg.artifacts:
+            raise CliError(f"Source references unknown artifact for {source.name}: {source.artifact}")
+        artifact = pkg.artifacts[source.artifact]
+        if source.arch not in artifact.arches:
+            raise CliError(f"Source {source.name} references artifact {source.artifact}, but {source.arch} is not supported")
+        if not source.rename:
+            raise CliError(f"Source {source.name} requires rename")
     if pkg.template in {"binary-archive", "appimage-desktop"}:
         if not pkg.binary_name:
             raise CliError(f"BINARY_NAME is required for template {pkg.template}")
@@ -961,11 +1123,13 @@ def validate_normalized_package(pkg: PackageSpec) -> None:
     ):
         for value in values:
             validate_relative_source_pattern(role, value, config_path)
-    for role, values in (
+    package_asset_lists: list[tuple[str, list[str]]] = [
         ("LOCAL_FILES entry", pkg.local_files),
         ("PATCH_FILES entry", pkg.patch_files),
-        ("BINARY_RELEASE_PATCH_FILES entry", pkg.binary_release_patch_files),
-    ):
+    ]
+    for artifact_name, artifact in pkg.artifacts.items():
+        package_asset_lists.append((f"artifacts.{artifact_name}.recipe.patches entry", artifact.patches))
+    for role, values in package_asset_lists:
         for value in values:
             validate_package_asset_path(pkg, pkg.package_dir, config_path, role, value)
     if pkg.service_mode == "static":
@@ -1030,6 +1194,7 @@ def emit_shell_for_package(pkg: PackageSpec, raw_defaults: bool = False) -> str:
     add_scalar("WRAPPER_SOURCE_PATH", pkg.wrapper_source_path)
     add_scalar("WRAPPER_INSTALL_PATH", pkg.wrapper_install_path)
     add_scalar("WRAPPER_MODE", pkg.wrapper_mode)
+    add_scalar("VERSION_ARTIFACT", pkg.version_artifact)
     add_scalar("SOURCE_RENAME", pkg.source_rename)
     add_scalar("SOURCE_DIR", pkg.source_dir)
     add_scalar("BUILD_DIR", pkg.build_dir)
@@ -1061,27 +1226,6 @@ def emit_shell_for_package(pkg: PackageSpec, raw_defaults: bool = False) -> str:
     add_array("TEST_PATHS", pkg.test_paths)
     add_array("TEST_EXECUTABLES", pkg.test_executables)
     add_array("TEST_COMMANDS", pkg.test_commands)
-    add_scalar("BINARY_RELEASE_ENABLED", pkg.binary_release_enabled)
-    add_scalar("BINARY_RELEASE_TEMPLATE", pkg.binary_release_template)
-    add_scalar("BINARY_RELEASE_REV", pkg.binary_release_rev)
-    add_scalar("BINARY_RELEASE_VERSION_TEMPLATE", pkg.binary_release_version_template)
-    add_scalar("BINARY_RELEASE_TAG_PREFIX", pkg.binary_release_tag_prefix)
-    add_scalar("BINARY_RELEASE_REPO", pkg.binary_release_repo_value)
-    add_array("BINARY_RELEASE_ARCHES", pkg.binary_release_arches)
-    add_scalar("BINARY_RELEASE_SOURCE_DIR", pkg.binary_release_source_dir)
-    add_array("BINARY_RELEASE_PATCH_FILES", pkg.binary_release_patch_files)
-    add_array("BINARY_RELEASE_MAKEDEPENDS", pkg.binary_release_makedepends)
-    add_array("BINARY_RELEASE_CARGO_FETCH_ARGS", pkg.binary_release_cargo_fetch_args)
-    add_array("BINARY_RELEASE_CARGO_BUILD_ARGS", pkg.binary_release_cargo_build_args)
-    add_array("BINARY_RELEASE_CARGO_CHECK_ARGS", pkg.binary_release_cargo_check_args)
-    add_scalar("BINARY_RELEASE_RUN_CHECK", pkg.binary_release_run_check)
-    add_array("BINARY_RELEASE_ARCHIVE_FILES", pkg.binary_release_archive_files)
-    add_scalar("BINARY_RELEASE_UPSTREAM_TYPE", pkg.binary_release_upstream_type)
-    add_scalar("BINARY_RELEASE_UPSTREAM_REPO_USER", pkg.binary_release_upstream_repo_user)
-    add_scalar("BINARY_RELEASE_UPSTREAM_REPO_NAME", pkg.binary_release_upstream_repo_name)
-    add_scalar("BINARY_RELEASE_UPSTREAM_TAG_PREFIX", pkg.binary_release_upstream_tag_prefix)
-    for arch, asset_name in pkg.binary_release_assets.items():
-        add_scalar(f"BINARY_RELEASE_ASSET_{shell_var_suffix(arch)}", asset_name)
     return "\n".join(lines) + "\n"
 
 
@@ -1162,10 +1306,6 @@ def selected_packages(command: str, args: list[str]) -> list[str]:
     return collect_all_packages()
 
 
-def package_has_binary_release_enabled(package: str) -> bool:
-    return load_package(package).binary_release_enabled
-
-
 def emit_package_matrix(packages: list[str], label: str) -> None:
     github_output = os.environ.get("GITHUB_OUTPUT")
     if not github_output:
@@ -1181,12 +1321,6 @@ def emit_package_matrix(packages: list[str], label: str) -> None:
 
 def command_discover(args: list[str]) -> int:
     emit_package_matrix(selected_packages("discover", args), "packages")
-    return 0
-
-
-def command_discover_binary_releases(args: list[str]) -> int:
-    packages = [package for package in selected_packages("discover-binary-releases", args) if package_has_binary_release_enabled(package)]
-    emit_package_matrix(packages, "binary release packages")
     return 0
 
 
@@ -1258,7 +1392,18 @@ def command_check_framework_boundaries(args: list[str]) -> int:
 # Upstream resolution
 
 
-def expand_template(template: str, *, pkg: PackageSpec, pkgver: str = "", carch: str = "", upstream_version: str = "", release_rev: str = "") -> str:
+def expand_template(
+    template: str,
+    *,
+    pkg: PackageSpec,
+    pkgver: str = "",
+    carch: str = "",
+    upstream_version: str = "",
+    release_rev: str = "",
+    artifact_rev: str = "",
+    artifact_name: str = "",
+    artifact_version: str = "",
+) -> str:
     result = template
     values = {
         "pkgname": pkg.name,
@@ -1266,6 +1411,9 @@ def expand_template(template: str, *, pkg: PackageSpec, pkgver: str = "", carch:
         "carch": carch,
         "upstream_version": upstream_version,
         "release_rev": release_rev,
+        "artifact_rev": artifact_rev,
+        "artifact_name": artifact_name,
+        "artifact_version": artifact_version,
     }
     for key, value in values.items():
         result = result.replace(f"${{{key}}}", value)
@@ -1454,9 +1602,6 @@ def resolve_github_release_family_assets(pkg: PackageSpec) -> None:
         log_error("Checked release tags without finding all required assets:")
         for tag in failed_tags:
             log_error(f"  {tag}")
-    if pkg.binary_release_enabled:
-        log_error("This package consumes a self-built binary release asset. Bootstrap or update it with:")
-        log_error(f"  python3 scripts/aurpkg.py build-binary-release {pkg.name}")
     raise CliError(f"No GitHub release with required assets found for tag prefix: {pkg.upstream_release_tag_prefix}")
 
 
@@ -1527,24 +1672,38 @@ def resolve_github_release_assets(pkg: PackageSpec) -> None:
         resolve_github_asset_for_arch(pkg, arch, release_json)
 
 
+def resolve_github_release_version(pkg: PackageSpec) -> None:
+    require_cmd("curl")
+    try:
+        release_json = github_api_get_json(f"https://api.github.com/repos/{pkg.upstream_repo_user}/{pkg.upstream_repo_name}/releases/latest")
+        latest_tag = release_json.get("tag_name", "")
+    except GithubApiError as exc:
+        log_info(f"GitHub API unavailable ({exc}); falling back to release page scraping.")
+        latest_url = github_fetch_latest_release_url(f"https://github.com/{pkg.upstream_repo_user}/{pkg.upstream_repo_name}/releases/latest")
+        latest_tag = latest_url.rstrip("/").split("/")[-1]
+    if not latest_tag:
+        raise CliError("Could not determine latest GitHub release tag")
+    pkg.github_release_tag = latest_tag
+    pkg.resolved_version = latest_tag
+    if pkg.upstream_tag_prefix and pkg.resolved_version.startswith(pkg.upstream_tag_prefix):
+        pkg.resolved_version = pkg.resolved_version[len(pkg.upstream_tag_prefix):]
+    if not pkg.resolved_version:
+        raise CliError(f"Could not normalize GitHub release tag for {pkg.name}: {latest_tag}")
+
+
 def hook_spec_vars(pkg: PackageSpec) -> list[str]:
     names = [
         "PACKAGE_SPEC_VERSION", "PKGNAME", "PACKAGE_TEMPLATE", "UPSTREAM_TYPE", "PKGDESC", "URL", "LICENSES", "ARCHES", "DEPENDS", "MAKEDEPENDS", "CHECKDEPENDS", "OPTDEPENDS", "OPTIONS", "PROVIDES", "CONFLICTS", "VALIDPGPKEYS", "PACKAGING_REPO_URL",
         "UPSTREAM_REPO_USER", "UPSTREAM_REPO_NAME", "UPSTREAM_TAG_PREFIX", "UPSTREAM_RELEASE_TAG_PREFIX", "UPSTREAM_ALLOW_PRERELEASE",
-        "SOURCE_RENAME", "BINARY_NAME", "BINARY_SOURCE_PATH", "INSTALL_BIN_PATH", "WRAPPER_SOURCE_PATH", "WRAPPER_INSTALL_PATH", "WRAPPER_MODE",
+        "SOURCE_RENAME", "BINARY_NAME", "BINARY_SOURCE_PATH", "INSTALL_BIN_PATH", "WRAPPER_SOURCE_PATH", "WRAPPER_INSTALL_PATH", "WRAPPER_MODE", "VERSION_ARTIFACT",
         "LOCAL_FILES", "PATCH_FILES", "DOC_FILES", "LICENSE_FILES", "INSTALL_MODE", "INSTALL_HINTS", "INSTALL_FILE", "SERVICE_MODE", "SERVICE_SCOPE", "SERVICE_NAME", "SERVICE_FILE", "SERVICE_EXEC", "SERVICE_RESTART", "SERVICE_RESTART_SEC",
         "DEB_RELOCATE_USR_LOCAL", "APPIMAGE_APPDIR_NAME", "APPIMAGE_INSTALL_DIR", "DESKTOP_CANDIDATES", "ICON_CANDIDATES", "DESKTOP_EXEC_REWRITE", "DESKTOP_NAME_REWRITE",
         "SOURCE_DIR", "BUILD_DIR", "MESON_OPTIONS", "RUN_CHECK", "CHECK_ARGS",
-        "BINARY_RELEASE_ENABLED", "BINARY_RELEASE_TEMPLATE", "BINARY_RELEASE_REV", "BINARY_RELEASE_VERSION_TEMPLATE", "BINARY_RELEASE_TAG_PREFIX", "BINARY_RELEASE_REPO", "BINARY_RELEASE_ARCHES",
-        "BINARY_RELEASE_UPSTREAM_TYPE", "BINARY_RELEASE_UPSTREAM_REPO_USER", "BINARY_RELEASE_UPSTREAM_REPO_NAME", "BINARY_RELEASE_UPSTREAM_TAG_PREFIX", "BINARY_RELEASE_SOURCE_DIR",
-        "BINARY_RELEASE_PATCH_FILES", "BINARY_RELEASE_MAKEDEPENDS", "BINARY_RELEASE_CARGO_FETCH_ARGS", "BINARY_RELEASE_CARGO_BUILD_ARGS", "BINARY_RELEASE_CARGO_CHECK_ARGS", "BINARY_RELEASE_RUN_CHECK", "BINARY_RELEASE_ARCHIVE_FILES",
         "PERSIST_STATE_KEYS", "TEST_PATHS", "TEST_EXECUTABLES", "TEST_COMMANDS",
     ]
     for arch in sorted(set(pkg.asset_selectors) | set(pkg.upstream_asset_names) | set(pkg.source_renames)):
         suffix = shell_var_suffix(arch)
         names.extend([f"ASSET_SELECTOR_{suffix}", f"UPSTREAM_ASSET_NAME_{suffix}", f"SOURCE_RENAME_{suffix}"])
-    for arch in sorted(pkg.binary_release_assets):
-        names.append(f"BINARY_RELEASE_ASSET_{shell_var_suffix(arch)}")
     return sorted(set(names))
 
 
@@ -1635,7 +1794,9 @@ def dispatch_upstream_resolution(pkg: PackageSpec) -> None:
     pkg.resolved_source_urls = {}
     pkg.github_release_tag = ""
     pkg.state_values = {}
-    if pkg.upstream_type == "github-release-assets":
+    if pkg.upstream_type == "github-release":
+        resolve_github_release_version(pkg)
+    elif pkg.upstream_type == "github-release-assets":
         resolve_github_release_assets(pkg)
     elif pkg.upstream_type == "custom-hook":
         run_custom_hook_resolution(pkg)
@@ -2621,7 +2782,7 @@ def publish_to_aur(pkg: PackageSpec, target_pkgver: str, target_pkgrel: int, dry
 
 
 # ---------------------------------------------------------------------------
-# Command implementations: publish/test/update detection/binary release
+# Command implementations: publish/test/update detection/artifact preparation
 
 
 def run_preflight(pkg: PackageSpec) -> None:
@@ -2641,11 +2802,457 @@ def run_preflight(pkg: PackageSpec) -> None:
     log_info(f"Preflight passed for {pkg.name}.")
 
 
-def parse_run_publish_args(args: list[str]) -> tuple[str, bool, bool, bool, bool]:
+def artifact_storage_repo(artifact: PackageArtifact) -> str:
+    return artifact.storage_repo_value or f"{artifact.storage_repo_user}/{artifact.storage_repo_name}"
+
+
+def artifact_normalize_requested_version(artifact: PackageArtifact, requested: str) -> str:
+    version = requested.removeprefix("v")
+    if artifact.recipe_source_tag_prefix and version.startswith(artifact.recipe_source_tag_prefix):
+        version = version[len(artifact.recipe_source_tag_prefix):]
+    return version
+
+
+def artifact_resolve_upstream_version(pkg: PackageSpec, artifact: PackageArtifact, requested_version: str = "") -> str:
+    if requested_version:
+        return artifact_normalize_requested_version(artifact, requested_version)
+    if (
+        pkg.upstream_type == "github-release"
+        and pkg.upstream_repo_user == artifact.recipe_source_repo_user
+        and pkg.upstream_repo_name == artifact.recipe_source_repo_name
+        and pkg.github_release_tag
+    ):
+        return artifact_normalize_requested_version(artifact, pkg.github_release_tag)
+    if artifact.recipe_source_type != "github-source-archive":
+        raise CliError(f"Unsupported artifact recipe source type for {artifact.name}: {artifact.recipe_source_type}")
+    try:
+        response = github_api_get_json(f"https://api.github.com/repos/{artifact.recipe_source_repo_user}/{artifact.recipe_source_repo_name}/releases/latest")
+    except GithubApiError as exc:
+        raise CliError(f"Failed to resolve latest artifact recipe source release for {artifact.recipe_source_repo_user}/{artifact.recipe_source_repo_name}: {exc}") from exc
+    latest_tag = response.get("tag_name", "")
+    if not latest_tag:
+        raise CliError(f"Could not extract artifact recipe source release tag for {pkg.name}/{artifact.name}")
+    version = artifact_normalize_requested_version(artifact, latest_tag)
+    if not version:
+        raise CliError(f"Could not normalize artifact recipe source release tag for {pkg.name}/{artifact.name}: {latest_tag}")
+    return version
+
+
+def artifact_version(pkg: PackageSpec, artifact: PackageArtifact, upstream_version: str) -> str:
+    pkgver = expand_template(
+        artifact.version_template,
+        pkg=pkg,
+        upstream_version=upstream_version,
+        release_rev=artifact.rev,
+        artifact_rev=artifact.rev,
+        artifact_name=artifact.name,
+    )
+    if not pkgver:
+        raise CliError(f"Computed empty artifact version for {pkg.name}/{artifact.name}")
+    if not re.fullmatch(r"[A-Za-z0-9._+]+", pkgver):
+        raise CliError(f"Artifact version contains unsupported characters for {pkg.name}/{artifact.name}: {pkgver}")
+    return pkgver
+
+
+def artifact_tag(artifact: PackageArtifact) -> str:
+    if not artifact.storage_tag_prefix:
+        raise CliError(f"Artifact storage tag_prefix is required for {artifact.name}")
+    if not artifact.resolved_version:
+        raise CliError(f"Artifact version has not been resolved for {artifact.name}")
+    return f"{artifact.storage_tag_prefix}{artifact.resolved_version}"
+
+
+def artifact_asset_name_for_arch(pkg: PackageSpec, artifact: PackageArtifact, arch: str) -> str:
+    output = artifact.outputs.get(arch)
+    if output is None or not output.asset_name:
+        raise CliError(f"Artifact output asset_name is required for {artifact.name}/{arch}")
+    return expand_template(
+        output.asset_name,
+        pkg=pkg,
+        pkgver=artifact.resolved_version,
+        carch=arch,
+        upstream_version=artifact.resolved_upstream_version,
+        artifact_rev=artifact.rev,
+        artifact_name=artifact.name,
+        artifact_version=artifact.resolved_version,
+    )
+
+
+def artifact_source_name(pkg: PackageSpec, artifact: PackageArtifact, source: PackageSource) -> str:
+    template = source.rename
+    if not template:
+        raise CliError(f"Source rename is required for {source.name}")
+    return expand_template(
+        template,
+        pkg=pkg,
+        pkgver=artifact.resolved_version,
+        carch=source.arch,
+        upstream_version=artifact.resolved_upstream_version,
+        artifact_rev=artifact.rev,
+        artifact_name=artifact.name,
+        artifact_version=artifact.resolved_version,
+    )
+
+
+def artifact_source_archive_url(artifact: PackageArtifact) -> str:
+    if artifact.recipe_source_type != "github-source-archive":
+        raise CliError(f"Unsupported artifact recipe source type for {artifact.name}: {artifact.recipe_source_type}")
+    upstream_tag = f"{artifact.recipe_source_tag_prefix}{artifact.resolved_upstream_version}"
+    return f"https://github.com/{artifact.recipe_source_repo_user}/{artifact.recipe_source_repo_name}/archive/refs/tags/{upstream_tag}.tar.gz"
+
+
+def artifact_source_dir(pkg: PackageSpec, artifact: PackageArtifact) -> str:
+    template = artifact.source_dir or f"{artifact.recipe_source_repo_name}-{artifact.resolved_upstream_version}"
+    return expand_template(
+        template,
+        pkg=pkg,
+        pkgver=artifact.resolved_version,
+        upstream_version=artifact.resolved_upstream_version,
+        release_rev=artifact.rev,
+        artifact_rev=artifact.rev,
+        artifact_name=artifact.name,
+        artifact_version=artifact.resolved_version,
+    )
+
+
+def github_release_asset_map(repo: str, tag: str) -> dict[str, str]:
+    try:
+        release_json = github_api_get_json(f"https://api.github.com/repos/{repo}/releases/tags/{tag}")
+    except GithubApiError as exc:
+        if "HTTP 404" in str(exc):
+            return {}
+        raise
+    assets = release_json.get("assets", [])
+    if not isinstance(assets, list):
+        raise CliError(f"Unexpected GitHub release assets response for {repo}/{tag}")
+    return {asset.get("name", ""): asset.get("browser_download_url", "") for asset in assets if asset.get("name")}
+
+
+def github_release_download_url(repo: str, tag: str, asset_name: str) -> str:
+    return f"https://github.com/{repo}/releases/download/{tag}/{asset_name}"
+
+
+def github_release_asset_url_exists(repo: str, tag: str, asset_name: str) -> bool:
+    return fetch_http_status_with_retry(github_release_download_url(repo, tag, asset_name)) == "200"
+
+
+def artifact_asset_complete(asset_urls: dict[str, str], asset_name: str) -> bool:
+    return all(name in asset_urls for name in (asset_name, f"{asset_name}.sha256sum", f"{asset_name}.buildinfo"))
+
+
+def write_artifact_buildinfo(pkg: PackageSpec, artifact: PackageArtifact, output_path: Path, arch: str, asset_name: str) -> None:
+    git_sha = os.environ.get("GITHUB_SHA", "")
+    if not git_sha and shutil.which("git"):
+        git_sha = run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, check=False, capture=True).stdout.strip()
+    output_path.write_text(
+        f"package={pkg.name}\n"
+        f"artifact={artifact.name}\n"
+        f"arch={arch}\n"
+        f"artifact_version={artifact.resolved_version}\n"
+        f"upstream_version={artifact.resolved_upstream_version}\n"
+        f"artifact_rev={artifact.rev}\n"
+        f"release_tag={artifact.release_tag}\n"
+        f"asset_name={asset_name}\n"
+        f"recipe={artifact.recipe_type}\n"
+        f"git_sha={git_sha or 'unknown'}\n",
+        encoding="utf-8",
+    )
+
+
+def publish_artifact_asset(pkg: PackageSpec, artifact: PackageArtifact, asset_path: Path) -> None:
+    require_cmd("gh")
+    repo = artifact_storage_repo(artifact)
+    target = os.environ.get("GITHUB_SHA", "")
+    if not target and shutil.which("git"):
+        target = run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, check=False, capture=True).stdout.strip()
+    if run(["gh", "release", "view", artifact.release_tag, "--repo", repo], check=False, capture=True).returncode == 0:
+        run(["gh", "release", "upload", artifact.release_tag, str(asset_path), str(asset_path) + ".sha256sum", str(asset_path) + ".buildinfo", "--clobber", "--repo", repo])
+    else:
+        run([
+            "gh",
+            "release",
+            "create",
+            artifact.release_tag,
+            str(asset_path),
+            str(asset_path) + ".sha256sum",
+            str(asset_path) + ".buildinfo",
+            "--repo",
+            repo,
+            "--target",
+            target,
+            "--title",
+            f"{pkg.name} {artifact.name} v{artifact.resolved_version}",
+            "--notes",
+            f"Prepared artifact {artifact.name} for {pkg.name} {artifact.resolved_version}.",
+        ])
+
+
+def artifact_build_direct_allowed() -> bool:
+    return os.environ.get("CI") == "true" and Path("/etc/arch-release").is_file() and os.geteuid() == 0
+
+
+def artifact_cargo_builder_script(
+    pkg: PackageSpec,
+    artifact: PackageArtifact,
+    source_url: str,
+    source_dir: str,
+    work_root: str,
+    build_root: str,
+    output_root: str,
+) -> str:
+    return f"""#!/bin/bash
+set -e
+source_url={q(source_url)}
+source_dir={q(source_dir)}
+work_root={q(work_root)}
+build_root={q(build_root)}
+output_root={q(output_root)}
+package_rel_dir={q(pkg.rel_dir)}
+{render_array_assignment("ARTIFACT_PATCHES", artifact.patches)}
+{render_array_assignment("ARTIFACT_CARGO_FETCH_ARGS", artifact.cargo_fetch_args)}
+{render_array_assignment("ARTIFACT_CARGO_BUILD_ARGS", artifact.cargo_build_args)}
+{render_array_assignment("ARTIFACT_CARGO_CHECK_ARGS", artifact.cargo_check_args)}
+{render_array_assignment("ARTIFACT_ARCHIVE_FILES", artifact.archive_files)}
+run_check={q(artifact.run_check)}
+
+cd "$build_root"
+curl -fsSL \
+    --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 \
+    -o source.tar.gz \
+    "$source_url"
+
+tar -xzf source.tar.gz
+cd "$source_dir"
+
+for patch_file in "${{ARTIFACT_PATCHES[@]}}"; do
+    [ -n "$patch_file" ] || continue
+    patch -Np1 -i "${{work_root}}/${{package_rel_dir}}/${{patch_file}}"
+done
+
+if [ "${{#ARTIFACT_CARGO_FETCH_ARGS[@]}}" -gt 0 ]; then
+    cargo fetch "${{ARTIFACT_CARGO_FETCH_ARGS[@]}}"
+else
+    target=$(rustc -vV | sed -n 's/^host: //p')
+    cargo fetch --locked --target "$target"
+fi
+
+if [ "${{#ARTIFACT_CARGO_BUILD_ARGS[@]}}" -gt 0 ]; then
+    cargo build "${{ARTIFACT_CARGO_BUILD_ARGS[@]}}"
+else
+    cargo build --release --frozen
+fi
+
+if [ "$run_check" = true ]; then
+    if [ "${{#ARTIFACT_CARGO_CHECK_ARGS[@]}}" -gt 0 ]; then
+        cargo test "${{ARTIFACT_CARGO_CHECK_ARGS[@]}}"
+    else
+        cargo test --frozen
+    fi
+fi
+
+for archive_file in "${{ARTIFACT_ARCHIVE_FILES[@]}}"; do
+    IFS=: read -r source_path destination_path file_mode <<< "$archive_file"
+    [ -n "$source_path" ] || {{ echo "Invalid archive file spec: $archive_file" >&2; exit 1; }}
+    [ -n "$destination_path" ] || {{ echo "Invalid archive file spec: $archive_file" >&2; exit 1; }}
+    [ -n "$file_mode" ] || file_mode=644
+    case "$source_path" in
+        /*|../*|*/../*|*/..) echo "Archive source must be relative and stay inside the source tree: $source_path" >&2; exit 1 ;;
+    esac
+    case "$destination_path" in
+        /*|../*|*/../*|*/..) echo "Archive destination must be relative and stay inside archive: $destination_path" >&2; exit 1 ;;
+    esac
+    case "$file_mode" in
+        *[!0-7]*|''|?????*) echo "Archive mode must be octal: $file_mode" >&2; exit 1 ;;
+    esac
+    [ -f "$source_path" ] || {{ echo "Archive source not found: $source_path" >&2; exit 1; }}
+    install -Dm"$file_mode" "$source_path" "${{output_root}}/$destination_path"
+done
+"""
+
+
+def ensure_builder_user() -> None:
+    if run(["id", "-u", "builder"], check=False, capture=True).returncode != 0:
+        if os.geteuid() != 0:
+            raise CliError("builder user is required for artifact preparation")
+        run(["useradd", "-m", "builder"])
+
+
+def build_artifact_cargo_direct(pkg: PackageSpec, artifact: PackageArtifact, arch: str, asset_path: Path) -> None:
+    require_cmd("pacman")
+    require_cmd("runuser")
+    if os.geteuid() != 0:
+        raise CliError("direct artifact preparation must run as root")
+    tmp_root = Path(tempfile.mkdtemp())
+    try:
+        tmp_root.chmod(0o755)
+        build_dir = tmp_root / "build"
+        output_dir = tmp_root / "output"
+        builder_script = tmp_root / "builder.sh"
+        build_dir.mkdir()
+        output_dir.mkdir()
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        run(["pacman", "-Syu", "--noconfirm", "--needed", *(artifact.makedepends or ["ca-certificates", "curl", "git", "patch", "rust", "tar"])])
+        ensure_builder_user()
+        run(["chown", "-R", "builder:builder", str(build_dir), str(output_dir)])
+        source_url = artifact_source_archive_url(artifact)
+        source_dir = artifact_source_dir(pkg, artifact)
+        builder_script.write_text(
+            artifact_cargo_builder_script(pkg, artifact, source_url, source_dir, str(REPO_ROOT), str(build_dir), str(output_dir)),
+            encoding="utf-8",
+        )
+        builder_script.chmod(0o755)
+        log_info(f"Building artifact {artifact.name} {artifact.resolved_version} ({arch}) in current Arch environment")
+        run(["runuser", "-u", "builder", "--", "env", "HOME=/home/builder", "/bin/bash", str(builder_script)], cwd=build_dir)
+        archive_destinations = [spec.split(":", 2)[1] for spec in artifact.archive_files]
+        run(["tar", "-C", str(output_dir), "-czf", str(asset_path), *archive_destinations])
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
+def build_artifact_cargo(pkg: PackageSpec, artifact: PackageArtifact, arch: str, asset_path: Path) -> None:
+    if arch != "x86_64":
+        raise CliError(f"cargo-build artifact recipe currently supports x86_64 only: {arch}")
+    if artifact_build_direct_allowed():
+        build_artifact_cargo_direct(pkg, artifact, arch, asset_path)
+        return
+    runtime = detect_container_runtime()
+    tmp_root = Path(tempfile.mkdtemp())
+    try:
+        output_dir = tmp_root / "output"
+        container_script = tmp_root / "container.sh"
+        builder_script = tmp_root / "builder.sh"
+        output_dir.mkdir()
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        source_url = artifact_source_archive_url(artifact)
+        source_dir = artifact_source_dir(pkg, artifact)
+        container_script.write_text(f"""#!/bin/bash
+set -e
+{render_array_assignment("ARTIFACT_MAKEDEPENDS", artifact.makedepends or ['ca-certificates', 'curl', 'git', 'patch', 'rust', 'tar'])}
+
+pacman -Syu --noconfirm --needed "${{ARTIFACT_MAKEDEPENDS[@]}}"
+
+if ! id -u builder >/dev/null 2>&1; then
+    useradd -m builder
+fi
+
+mkdir -p /build /output
+chown -R builder:builder /build /output
+runuser -u builder -- env HOME=/home/builder /bin/bash /builder.sh
+chown -R "${{HOST_UID}}:${{HOST_GID}}" /output
+""", encoding="utf-8")
+        builder_script.write_text(artifact_cargo_builder_script(pkg, artifact, source_url, source_dir, "/work", "/build", "/output"), encoding="utf-8")
+        container_script.chmod(0o755)
+        builder_script.chmod(0o755)
+        log_info(f"Building artifact {artifact.name} {artifact.resolved_version} ({arch}) with {runtime}")
+        image = os.environ.get("ARCH_BASE_DEVEL_IMAGE", DEFAULT_ARCH_BASE_DEVEL_IMAGE)
+        run([
+            runtime,
+            "run",
+            "--rm",
+            "-e",
+            f"HOST_UID={os.getuid()}",
+            "-e",
+            f"HOST_GID={os.getgid()}",
+            "-v",
+            f"{REPO_ROOT}:/work:ro",
+            "-v",
+            f"{output_dir}:/output",
+            "-v",
+            f"{container_script}:/container.sh:ro",
+            "-v",
+            f"{builder_script}:/builder.sh:ro",
+            image,
+            "bash",
+            "/container.sh",
+        ])
+        archive_destinations = [spec.split(":", 2)[1] for spec in artifact.archive_files]
+        run(["tar", "-C", str(output_dir), "-czf", str(asset_path), *archive_destinations])
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
+def prepare_artifact_source(pkg: PackageSpec, artifact: PackageArtifact, source: PackageSource, mode: str, srcdest: Path) -> None:
+    arch = source.arch
+    asset_name = artifact_asset_name_for_arch(pkg, artifact, arch)
+    source_name = artifact_source_name(pkg, artifact, source)
+    repo = artifact_storage_repo(artifact)
+    asset_urls: dict[str, str] = {}
+    if mode in {"readonly", "publish", "force"}:
+        try:
+            asset_urls = github_release_asset_map(repo, artifact.release_tag)
+        except GithubApiError as exc:
+            log_info(f"GitHub release asset API unavailable ({exc}); checking release download URL directly.")
+    existing_url = asset_urls.get(asset_name, "")
+    if not existing_url and mode in {"readonly", "publish"} and github_release_asset_url_exists(repo, artifact.release_tag, asset_name):
+        existing_url = github_release_download_url(repo, artifact.release_tag, asset_name)
+    artifact_is_complete = artifact_asset_complete(asset_urls, asset_name) if asset_urls else bool(existing_url)
+    should_build = mode in {"local", "force"} or (mode == "publish" and not artifact_is_complete)
+
+    if mode == "readonly" and not existing_url:
+        raise CliError(
+            f"Missing prepared artifact asset for {pkg.name}/{artifact.name}/{arch}: {repo}/{artifact.release_tag}/{asset_name}. "
+            f"Run: python3 scripts/aurpkg.py prepare-artifacts {pkg.name} --artifact-mode publish"
+        )
+    if not should_build and existing_url:
+        log_info(f"Using prepared artifact asset: {repo}/{artifact.release_tag}/{asset_name}")
+        artifact.resolved_asset_urls[arch] = existing_url
+        pkg.resolved_source_urls[arch] = existing_url
+        pkg.source_renames[arch] = source_name
+        return
+
+    asset_path = srcdest / asset_name
+    if artifact.recipe_type == "cargo-build":
+        build_artifact_cargo(pkg, artifact, arch, asset_path)
+    else:
+        raise CliError(f"Unsupported artifact recipe type for {artifact.name}: {artifact.recipe_type}")
+    sha = sha256_file(asset_path)
+    Path(str(asset_path) + ".sha256sum").write_text(f"{sha}  {asset_path.name}\n", encoding="utf-8")
+    write_artifact_buildinfo(pkg, artifact, Path(str(asset_path) + ".buildinfo"), arch, asset_name)
+
+    if mode == "local":
+        source_url = asset_path.resolve().as_uri()
+        log_info(f"Using locally prepared artifact asset: {asset_path}")
+    else:
+        publish_artifact_asset(pkg, artifact, asset_path)
+        source_url = github_release_download_url(repo, artifact.release_tag, asset_name)
+        log_info(f"Published prepared artifact asset: {repo}/{artifact.release_tag}/{asset_name}")
+    artifact.resolved_asset_urls[arch] = source_url
+    pkg.resolved_source_urls[arch] = source_url
+    pkg.source_renames[arch] = source_name
+
+
+def prepare_package_artifacts(pkg: PackageSpec, mode: str, srcdest: Path, requested_upstream_version: str = "") -> None:
+    if mode not in ARTIFACT_MODES:
+        raise CliError(f"Unsupported artifact preparation mode: {mode}")
+    if not pkg.artifacts:
+        return
+    log_group_start("Prepare Artifacts")
+    try:
+        for artifact in pkg.artifacts.values():
+            artifact.resolved_upstream_version = artifact_resolve_upstream_version(pkg, artifact, requested_upstream_version)
+            artifact.resolved_version = artifact_version(pkg, artifact, artifact.resolved_upstream_version)
+            artifact.release_tag = artifact_tag(artifact)
+            artifact.resolved_asset_urls = {}
+            log_info(
+                f"Artifact {artifact.name}: upstream {artifact.resolved_upstream_version}, "
+                f"version {artifact.resolved_version}, storage {artifact_storage_repo(artifact)}/{artifact.release_tag}"
+            )
+        if pkg.version_artifact:
+            pkg.resolved_version = pkg.artifacts[pkg.version_artifact].resolved_version
+            log_info(f"Package version from artifact {pkg.version_artifact}: {pkg.resolved_version}")
+        for source in pkg.sources.values():
+            artifact = pkg.artifacts[source.artifact]
+            prepare_artifact_source(pkg, artifact, source, mode, srcdest)
+    finally:
+        log_group_end()
+
+
+def parse_run_publish_args(args: list[str]) -> tuple[str, bool, bool, bool, bool, str]:
     dry_run = False
     skip_build = False
     verify_install = False
     preflight_only = False
+    artifact_mode = ""
     pkg_input = ""
     index = 0
     while index < len(args):
@@ -2658,8 +3265,13 @@ def parse_run_publish_args(args: list[str]) -> tuple[str, bool, bool, bool, bool
             verify_install = True
         elif arg == "--preflight":
             preflight_only = True
+        elif arg == "--artifact-mode":
+            index += 1
+            if index >= len(args):
+                raise CliError("Missing value for --artifact-mode")
+            artifact_mode = args[index]
         elif arg in {"-h", "--help"}:
-            print("Usage: aurpkg.py run-publish <pkgname-or-path> [--dry-run] [--skip-build] [--verify-install] [--preflight]")
+            print("Usage: aurpkg.py run-publish <pkgname-or-path> [--dry-run] [--skip-build] [--verify-install] [--preflight] [--artifact-mode <readonly|local|publish|force>]")
             raise SystemExit(0)
         elif arg.startswith("-"):
             raise CliError(f"Unknown parameter: {arg}")
@@ -2674,11 +3286,17 @@ def parse_run_publish_args(args: list[str]) -> tuple[str, bool, bool, bool, bool
         raise CliError("--verify-install cannot be used with --preflight")
     if verify_install and os.geteuid() != 0:
         raise CliError("--verify-install requires running as root")
-    return pkg_input, dry_run, skip_build, verify_install, preflight_only
+    if not artifact_mode:
+        artifact_mode = "readonly" if dry_run else "publish"
+    if artifact_mode not in ARTIFACT_MODES:
+        raise CliError(f"Unsupported artifact preparation mode: {artifact_mode}")
+    if artifact_mode == "local" and not dry_run:
+        raise CliError("--artifact-mode local is only allowed with --dry-run")
+    return pkg_input, dry_run, skip_build, verify_install, preflight_only, artifact_mode
 
 
 def command_run_publish(args: list[str]) -> int:
-    pkg_input, dry_run, skip_build, verify_install, preflight_only = parse_run_publish_args(args)
+    pkg_input, dry_run, skip_build, verify_install, preflight_only, artifact_mode = parse_run_publish_args(args)
     pkg = load_package(pkg_input)
     if preflight_only:
         run_preflight(pkg)
@@ -2715,6 +3333,7 @@ def command_run_publish(args: list[str]) -> int:
             log_info(f"Resolved Upstream Version: {pkg.resolved_version}")
         finally:
             log_group_end()
+        prepare_package_artifacts(pkg, artifact_mode, srcdest)
         target_pkgver = pkg.resolved_version
         target_pkgrel = pkg.aur_current_rel if pkg.aur_current_ver and target_pkgver == pkg.aur_current_ver else 1
         if target_pkgrel < 1:
@@ -2744,16 +3363,43 @@ def command_run_publish(args: list[str]) -> int:
     return 0
 
 
+def parse_run_test_args(args: list[str]) -> tuple[str, str]:
+    pkg_input = ""
+    artifact_mode = "readonly"
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--artifact-mode":
+            index += 1
+            if index >= len(args):
+                raise CliError("Missing value for --artifact-mode")
+            artifact_mode = args[index]
+        elif arg in {"-h", "--help"}:
+            print("Usage: aurpkg.py run-test <pkgname-or-path> [--artifact-mode <readonly|local>]")
+            raise SystemExit(0)
+        elif arg.startswith("-"):
+            raise CliError(f"Unknown parameter: {arg}")
+        else:
+            pkg_input = arg
+        index += 1
+    if not pkg_input:
+        raise CliError("No package directory specified.")
+    if artifact_mode not in ARTIFACT_MODES:
+        raise CliError(f"Unsupported artifact preparation mode: {artifact_mode}")
+    if artifact_mode not in {"readonly", "local"}:
+        raise CliError("run-test supports readonly or local artifact preparation only; use prepare-artifacts for publish modes")
+    return pkg_input, artifact_mode
+
+
 def run_package_validation_direct(args: list[str]) -> int:
-    if len(args) != 1:
-        raise CliError("Usage: aurpkg.py run-test <pkgname-or-path>")
     if os.geteuid() != 0:
         raise CliError("package validation direct mode must run as root inside the test container")
     require_cmd("git")
     require_cmd("makepkg")
     require_cmd("updpkgsums")
     require_cmd("pacman")
-    pkg = load_package(args[0])
+    pkg_input, artifact_mode = parse_run_test_args(args)
+    pkg = load_package(pkg_input)
     tmp_root = Path(tempfile.mkdtemp())
     try:
         srcdest = tmp_root / "srcdest"
@@ -2770,12 +3416,14 @@ def run_package_validation_direct(args: list[str]) -> int:
         log_group_start(f"Test Initialization: {pkg.rel_dir}")
         try:
             dispatch_upstream_resolution(pkg)
-            target_pkgver = pkg.resolved_version
-            target_pkgrel = 1
             log_info(f"Package: {pkg.name}")
-            log_info(f"Resolved Version: {target_pkgver}")
+            log_info(f"Resolved Upstream Version: {pkg.resolved_version}")
         finally:
             log_group_end()
+        prepare_package_artifacts(pkg, artifact_mode, srcdest)
+        target_pkgver = pkg.resolved_version
+        target_pkgrel = 1
+        log_info(f"Resolved Package Version: {target_pkgver}")
         prepare_workspace_for_build(pkg, workspace, target_pkgver, target_pkgrel, srcdest)
         log_group_start("Build Package")
         try:
@@ -2797,12 +3445,11 @@ def detect_container_runtime() -> str:
 
 
 def command_run_test(args: list[str]) -> int:
-    if len(args) != 1:
-        raise CliError("Usage: aurpkg.py run-test <pkgname-or-path>")
-    pkg_dir = canonical_package_dir(args[0])
+    pkg_input, artifact_mode = parse_run_test_args(args)
+    pkg_dir = canonical_package_dir(pkg_input)
     if os.environ.get("RUN_TEST_DIRECT") == "true" or os.environ.get("CI") == "true":
         log_cli("Running package validation directly in current Arch environment...")
-        return run_package_validation_direct([pkg_dir])
+        return run_package_validation_direct([pkg_dir, "--artifact-mode", artifact_mode])
     runtime = detect_container_runtime()
     image = os.environ.get("ARCH_BASE_DEVEL_IMAGE", DEFAULT_ARCH_BASE_DEVEL_IMAGE)
     log_cli(f"Running package validation in ephemeral {runtime} container...")
@@ -2812,7 +3459,7 @@ def command_run_test(args: list[str]) -> int:
         "pacman-key --init >/dev/null 2>&1 && "
         "pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python && "
         "python3 scripts/aurpkg.py setup-user && "
-        f"RUN_TEST_DIRECT=true python3 scripts/aurpkg.py run-test {q(pkg_dir)}"
+        f"RUN_TEST_DIRECT=true python3 scripts/aurpkg.py run-test {q(pkg_dir)} --artifact-mode {q(artifact_mode)}"
     )
     run([
         runtime,
@@ -2867,8 +3514,7 @@ def detection_fingerprint(pkg: PackageSpec) -> str:
         f"RESOLVED_VERSION={pkg.resolved_version}",
         f"PACKAGE_DEFINITION={package_definition_digest(pkg)}",
         f"PACKAGE_FRAMEWORK={package_framework_digest()}",
-        f"BINARY_RELEASE_ENABLED={bool_text(pkg.binary_release_enabled)}",
-        f"BINARY_RELEASE_REV={pkg.binary_release_rev}",
+        f"VERSION_ARTIFACT={pkg.version_artifact}",
     ]
     if pkg.github_release_tag:
         lines.append(f"GITHUB_RELEASE_TAG={pkg.github_release_tag}")
@@ -2881,9 +3527,12 @@ def detection_fingerprint(pkg: PackageSpec) -> str:
     for arch, name in sorted(pkg.upstream_asset_names.items()):
         if name:
             lines.append(f"UPSTREAM_ASSET_NAME_{shell_var_suffix(arch)}={name}")
-    for arch, asset in sorted(pkg.binary_release_assets.items()):
-        if asset:
-            lines.append(f"BINARY_RELEASE_ASSET_{shell_var_suffix(arch)}={asset}")
+    for artifact_name, artifact in sorted(pkg.artifacts.items()):
+        lines.append(f"ARTIFACT_{artifact_name}_REV={artifact.rev}")
+        lines.append(f"ARTIFACT_{artifact_name}_RECIPE={artifact.recipe_type}")
+        for arch, output in sorted(artifact.outputs.items()):
+            if output.asset_name:
+                lines.append(f"ARTIFACT_{artifact_name}_ASSET_{shell_var_suffix(arch)}={output.asset_name}")
     return sha256_text("\n".join(lines) + "\n")
 
 
@@ -3005,251 +3654,10 @@ def command_detect_updates(args: list[str]) -> int:
     return 0
 
 
-def binary_release_repo(pkg: PackageSpec) -> str:
-    return pkg.binary_release_repo_value or os.environ.get("GITHUB_REPOSITORY") or "orange-guo/aur-packages"
-
-
-def binary_release_normalize_requested_version(pkg: PackageSpec, requested: str) -> str:
-    version = requested.removeprefix("v")
-    if pkg.binary_release_upstream_tag_prefix and version.startswith(pkg.binary_release_upstream_tag_prefix):
-        version = version[len(pkg.binary_release_upstream_tag_prefix):]
-    return version
-
-
-def binary_release_resolve_upstream_version(pkg: PackageSpec, requested_version: str) -> str:
-    if requested_version:
-        return binary_release_normalize_requested_version(pkg, requested_version)
-    if pkg.binary_release_upstream_type != "github-source-archive":
-        raise CliError(f"Unsupported BINARY_RELEASE_UPSTREAM_TYPE: {pkg.binary_release_upstream_type}")
-    try:
-        response = github_api_get_json(f"https://api.github.com/repos/{pkg.binary_release_upstream_repo_user}/{pkg.binary_release_upstream_repo_name}/releases/latest")
-    except GithubApiError as exc:
-        raise CliError(f"Failed to resolve latest upstream release for {pkg.binary_release_upstream_repo_user}/{pkg.binary_release_upstream_repo_name}: {exc}") from exc
-    latest_tag = response.get("tag_name", "")
-    if not latest_tag:
-        raise CliError(f"Could not extract upstream release tag for {pkg.name}")
-    version = binary_release_normalize_requested_version(pkg, latest_tag)
-    if not version:
-        raise CliError(f"Could not normalize upstream release tag for {pkg.name}: {latest_tag}")
-    return version
-
-
-def binary_release_pkgver(pkg: PackageSpec, upstream_version: str) -> str:
-    pkgver = expand_template(pkg.binary_release_version_template, pkg=pkg, upstream_version=upstream_version, release_rev=pkg.binary_release_rev)
-    if not pkgver:
-        raise CliError(f"Computed empty binary release pkgver for {pkg.name}")
-    if not re.fullmatch(r"[A-Za-z0-9._+]+", pkgver):
-        raise CliError(f"Binary release pkgver contains unsupported characters: {pkgver}")
-    return pkgver
-
-
-def binary_release_tag(pkg: PackageSpec, pkgver: str) -> str:
-    return f"{pkg.binary_release_tag_prefix}{pkgver}"
-
-
-def binary_release_asset_name_for_arch(pkg: PackageSpec, arch: str, pkgver: str) -> str:
-    template = pkg.binary_release_assets.get(arch, "")
-    if not template:
-        raise CliError(f"BINARY_RELEASE_ASSET_{shell_var_suffix(arch)} is required")
-    return expand_template(template, pkg=pkg, pkgver=pkgver, carch=arch)
-
-
-def binary_release_source_archive_url(pkg: PackageSpec, upstream_version: str) -> str:
-    upstream_tag = f"{pkg.binary_release_upstream_tag_prefix}{upstream_version}"
-    if pkg.binary_release_upstream_type == "github-source-archive":
-        return f"https://github.com/{pkg.binary_release_upstream_repo_user}/{pkg.binary_release_upstream_repo_name}/archive/refs/tags/{upstream_tag}.tar.gz"
-    raise CliError(f"Unsupported BINARY_RELEASE_UPSTREAM_TYPE: {pkg.binary_release_upstream_type}")
-
-
-def binary_release_source_dir(pkg: PackageSpec, upstream_version: str, pkgver: str) -> str:
-    template = pkg.binary_release_source_dir or f"{pkg.binary_release_upstream_repo_name}-{upstream_version}"
-    return expand_template(template, pkg=pkg, pkgver=pkgver, upstream_version=upstream_version, release_rev=pkg.binary_release_rev)
-
-
-def binary_release_asset_exists(pkg: PackageSpec, tag: str, asset_name: str) -> bool:
-    require_cmd("gh")
-    result = run(["gh", "release", "view", tag, "--repo", binary_release_repo(pkg), "--json", "assets", "--jq", ".assets[].name"], check=False, capture=True)
-    if result.returncode != 0 or not result.stdout.strip():
-        return False
-    names = set(result.stdout.splitlines())
-    return all(name in names for name in (asset_name, f"{asset_name}.sha256sum", f"{asset_name}.buildinfo"))
-
-
-def write_binary_release_buildinfo(pkg: PackageSpec, output_path: Path, arch: str, upstream_version: str, pkgver: str, tag: str, asset_name: str) -> None:
-    git_sha = os.environ.get("GITHUB_SHA", "")
-    if not git_sha and shutil.which("git"):
-        git_sha = run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, check=False, capture=True).stdout.strip()
-    output_path.write_text(
-        f"package={pkg.name}\n"
-        f"arch={arch}\n"
-        f"pkgver={pkgver}\n"
-        f"upstream_version={upstream_version}\n"
-        f"release_rev={pkg.binary_release_rev}\n"
-        f"release_tag={tag}\n"
-        f"asset_name={asset_name}\n"
-        f"build_template={pkg.binary_release_template}\n"
-        f"git_sha={git_sha or 'unknown'}\n",
-        encoding="utf-8",
-    )
-
-
-def publish_binary_release_asset(pkg: PackageSpec, tag: str, pkgver: str, asset_path: Path) -> None:
-    require_cmd("gh")
-    repo = binary_release_repo(pkg)
-    target = os.environ.get("GITHUB_SHA", "")
-    if not target and shutil.which("git"):
-        target = run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, check=False, capture=True).stdout.strip()
-    if run(["gh", "release", "view", tag, "--repo", repo], check=False, capture=True).returncode == 0:
-        run(["gh", "release", "upload", tag, str(asset_path), str(asset_path) + ".sha256sum", str(asset_path) + ".buildinfo", "--clobber", "--repo", repo])
-    else:
-        run([
-            "gh",
-            "release",
-            "create",
-            tag,
-            str(asset_path),
-            str(asset_path) + ".sha256sum",
-            str(asset_path) + ".buildinfo",
-            "--repo",
-            repo,
-            "--target",
-            target,
-            "--title",
-            f"{pkg.name} v{pkgver}",
-            "--notes",
-            f"Self-built binary release for {pkg.name} {pkgver}.",
-        ])
-
-
-def build_binary_release_source_cargo(pkg: PackageSpec, arch: str, upstream_version: str, pkgver: str, asset_path: Path) -> None:
-    if arch != "x86_64":
-        raise CliError(f"source-cargo binary release currently supports x86_64 only: {arch}")
-    runtime = detect_container_runtime()
-    tmp_root = Path(tempfile.mkdtemp())
-    try:
-        output_dir = tmp_root / "output"
-        container_script = tmp_root / "container.sh"
-        builder_script = tmp_root / "builder.sh"
-        output_dir.mkdir()
-        asset_path.parent.mkdir(parents=True, exist_ok=True)
-        source_url = binary_release_source_archive_url(pkg, upstream_version)
-        source_dir = binary_release_source_dir(pkg, upstream_version, pkgver)
-        container_script.write_text(f"""#!/bin/bash
-set -e
-{render_array_assignment("BINARY_RELEASE_MAKEDEPENDS", pkg.binary_release_makedepends or ['ca-certificates', 'curl', 'git', 'patch', 'rust', 'tar'])}
-
-pacman -Syu --noconfirm --needed "${{BINARY_RELEASE_MAKEDEPENDS[@]}}"
-
-if ! id -u builder >/dev/null 2>&1; then
-    useradd -m builder
-fi
-
-mkdir -p /build /output
-chown -R builder:builder /build /output
-runuser -u builder -- env HOME=/home/builder /bin/bash /builder.sh
-chown -R "${{HOST_UID}}:${{HOST_GID}}" /output
-""", encoding="utf-8")
-        builder_script.write_text(f"""#!/bin/bash
-set -e
-source_url={q(source_url)}
-source_dir={q(source_dir)}
-package_rel_dir={q(pkg.rel_dir)}
-{render_array_assignment("BINARY_RELEASE_PATCH_FILES", pkg.binary_release_patch_files)}
-{render_array_assignment("BINARY_RELEASE_CARGO_FETCH_ARGS", pkg.binary_release_cargo_fetch_args)}
-{render_array_assignment("BINARY_RELEASE_CARGO_BUILD_ARGS", pkg.binary_release_cargo_build_args)}
-{render_array_assignment("BINARY_RELEASE_CARGO_CHECK_ARGS", pkg.binary_release_cargo_check_args)}
-{render_array_assignment("BINARY_RELEASE_ARCHIVE_FILES", pkg.binary_release_archive_files)}
-run_check={q(pkg.binary_release_run_check)}
-
-cd /build
-curl -fsSL \
-    --retry 8 --retry-all-errors --retry-delay 2 --connect-timeout 20 \
-    -o source.tar.gz \
-    "$source_url"
-
-tar -xzf source.tar.gz
-cd "$source_dir"
-
-for patch_file in "${{BINARY_RELEASE_PATCH_FILES[@]}}"; do
-    [ -n "$patch_file" ] || continue
-    patch -Np1 -i "/work/${{package_rel_dir}}/${{patch_file}}"
-done
-
-if [ "${{#BINARY_RELEASE_CARGO_FETCH_ARGS[@]}}" -gt 0 ]; then
-    cargo fetch "${{BINARY_RELEASE_CARGO_FETCH_ARGS[@]}}"
-else
-    target=$(rustc -vV | sed -n 's/^host: //p')
-    cargo fetch --locked --target "$target"
-fi
-
-if [ "${{#BINARY_RELEASE_CARGO_BUILD_ARGS[@]}}" -gt 0 ]; then
-    cargo build "${{BINARY_RELEASE_CARGO_BUILD_ARGS[@]}}"
-else
-    cargo build --release --frozen
-fi
-
-if [ "$run_check" = true ]; then
-    if [ "${{#BINARY_RELEASE_CARGO_CHECK_ARGS[@]}}" -gt 0 ]; then
-        cargo test "${{BINARY_RELEASE_CARGO_CHECK_ARGS[@]}}"
-    else
-        cargo test --frozen
-    fi
-fi
-
-for archive_file in "${{BINARY_RELEASE_ARCHIVE_FILES[@]}}"; do
-    IFS=: read -r source_path destination_path file_mode <<< "$archive_file"
-    [ -n "$source_path" ] || {{ echo "Invalid archive file spec: $archive_file" >&2; exit 1; }}
-    [ -n "$destination_path" ] || {{ echo "Invalid archive file spec: $archive_file" >&2; exit 1; }}
-    [ -n "$file_mode" ] || file_mode=644
-    case "$source_path" in
-        /*|../*|*/../*|*/..) echo "Archive source must be relative and stay inside the source tree: $source_path" >&2; exit 1 ;;
-    esac
-    case "$destination_path" in
-        /*|../*|*/../*|*/..) echo "Archive destination must be relative and stay inside archive: $destination_path" >&2; exit 1 ;;
-    esac
-    case "$file_mode" in
-        *[!0-7]*|''|?????*) echo "Archive mode must be octal: $file_mode" >&2; exit 1 ;;
-    esac
-    [ -f "$source_path" ] || {{ echo "Archive source not found: $source_path" >&2; exit 1; }}
-    install -Dm"$file_mode" "$source_path" "/output/$destination_path"
-done
-""", encoding="utf-8")
-        container_script.chmod(0o755)
-        builder_script.chmod(0o755)
-        log_info(f"Building {pkg.name} {pkgver} ({arch}) with {runtime}")
-        image = os.environ.get("ARCH_BASE_DEVEL_IMAGE", DEFAULT_ARCH_BASE_DEVEL_IMAGE)
-        run([
-            runtime,
-            "run",
-            "--rm",
-            "-e",
-            f"HOST_UID={os.getuid()}",
-            "-e",
-            f"HOST_GID={os.getgid()}",
-            "-v",
-            f"{REPO_ROOT}:/work:ro",
-            "-v",
-            f"{output_dir}:/output",
-            "-v",
-            f"{container_script}:/container.sh:ro",
-            "-v",
-            f"{builder_script}:/builder.sh:ro",
-            image,
-            "bash",
-            "/container.sh",
-        ])
-        archive_destinations = [spec.split(":", 2)[1] for spec in pkg.binary_release_archive_files]
-        run(["tar", "-C", str(output_dir), "-czf", str(asset_path), *archive_destinations])
-    finally:
-        shutil.rmtree(tmp_root, ignore_errors=True)
-
-
-def parse_build_binary_release_args(args: list[str]) -> tuple[str, str, bool, bool, bool]:
+def parse_prepare_artifacts_args(args: list[str]) -> tuple[str, str, str]:
     pkg_input = ""
     requested_upstream_version = ""
-    force = False
-    dry_run = False
-    skip_publish = False
+    artifact_mode = "publish"
     index = 0
     while index < len(args):
         arg = args[index]
@@ -3258,14 +3666,15 @@ def parse_build_binary_release_args(args: list[str]) -> tuple[str, str, bool, bo
             if index >= len(args):
                 raise CliError("Missing value for --upstream-version")
             requested_upstream_version = args[index]
+        elif arg == "--artifact-mode":
+            index += 1
+            if index >= len(args):
+                raise CliError("Missing value for --artifact-mode")
+            artifact_mode = args[index]
         elif arg == "--force":
-            force = True
-        elif arg == "--dry-run":
-            dry_run = True
-        elif arg == "--skip-publish":
-            skip_publish = True
+            artifact_mode = "force"
         elif arg in {"-h", "--help"}:
-            print("Usage: aurpkg.py build-binary-release <pkgname-or-path> [--upstream-version <version>] [--force] [--dry-run] [--skip-publish]")
+            print("Usage: aurpkg.py prepare-artifacts <pkgname-or-path> [--upstream-version <version>] [--artifact-mode <readonly|local|publish|force>] [--force]")
             raise SystemExit(0)
         elif arg.startswith("-"):
             raise CliError(f"Unknown parameter: {arg}")
@@ -3274,64 +3683,29 @@ def parse_build_binary_release_args(args: list[str]) -> tuple[str, str, bool, bo
         index += 1
     if not pkg_input:
         raise CliError("No package specified.")
-    return pkg_input, requested_upstream_version, force, dry_run, skip_publish
+    if artifact_mode not in ARTIFACT_MODES:
+        raise CliError(f"Unsupported artifact preparation mode: {artifact_mode}")
+    return pkg_input, requested_upstream_version, artifact_mode
 
 
-def command_build_binary_release(args: list[str]) -> int:
-    pkg_input, requested, force, dry_run, skip_publish = parse_build_binary_release_args(args)
+def command_prepare_artifacts(args: list[str]) -> int:
+    pkg_input, requested, artifact_mode = parse_prepare_artifacts_args(args)
     pkg = load_package(pkg_input)
-    if not pkg.binary_release_enabled:
-        raise CliError(f"BINARY_RELEASE_ENABLED=true is required for {pkg.name}")
-    if not pkg.binary_release_makedepends:
-        pkg.binary_release_makedepends = ["ca-certificates", "curl", "git", "patch", "rust", "tar"]
-    upstream_version = binary_release_resolve_upstream_version(pkg, requested)
-    pkgver = binary_release_pkgver(pkg, upstream_version)
-    release_tag = binary_release_tag(pkg, pkgver)
-    log_group_start(f"Binary Release Plan: {pkg.name}")
-    try:
-        log_info(f"Package: {pkg.name}")
-        log_info(f"Template: {pkg.binary_release_template}")
-        log_info(f"Upstream Version: {upstream_version}")
-        log_info(f"Package Version: {pkgver}")
-        log_info(f"Release Tag: {release_tag}")
-        log_info(f"Release Repo: {binary_release_repo(pkg)}")
-    finally:
-        log_group_end()
-    if dry_run:
-        for arch in pkg.binary_release_arches:
-            asset_name = binary_release_asset_name_for_arch(pkg, arch, pkgver)
-            log_info(f"[DRY RUN] Would build {arch}: {asset_name}")
+    if not pkg.artifacts:
+        log_info(f"Package has no declared artifacts: {pkg.name}")
         return 0
     tmp_root = Path(tempfile.mkdtemp())
     try:
-        assets_dir = tmp_root / "assets"
-        assets_dir.mkdir()
-        for arch in pkg.binary_release_arches:
-            asset_name = binary_release_asset_name_for_arch(pkg, arch, pkgver)
-            if not force and not skip_publish and binary_release_asset_exists(pkg, release_tag, asset_name):
-                log_info(f"Release asset already exists: {release_tag}/{asset_name}")
-                continue
-            asset_path = assets_dir / asset_name
-            if pkg.binary_release_template == "source-cargo":
-                build_binary_release_source_cargo(pkg, arch, upstream_version, pkgver, asset_path)
-            else:
-                raise CliError(f"Unsupported BINARY_RELEASE_TEMPLATE: {pkg.binary_release_template}")
-            sha = sha256_file(asset_path)
-            (Path(str(asset_path) + ".sha256sum")).write_text(f"{sha}  {asset_path.name}\n", encoding="utf-8")
-            write_binary_release_buildinfo(pkg, Path(str(asset_path) + ".buildinfo"), arch, upstream_version, pkgver, release_tag, asset_name)
-            if skip_publish:
-                log_info(f"Built release asset without publishing: {asset_path}")
-            else:
-                publish_binary_release_asset(pkg, release_tag, pkgver, asset_path)
-                log_info(f"Published release asset: {release_tag}/{asset_name}")
-        if not skip_publish:
-            log_group_start(f"Post-publish preflight: {pkg.name}")
-            try:
-                run_preflight(pkg)
-            finally:
-                log_group_end()
+        srcdest = tmp_root / "srcdest"
+        srcdest.mkdir()
+        if not requested:
+            dispatch_upstream_resolution(pkg)
+        prepare_package_artifacts(pkg, artifact_mode, srcdest, requested)
     finally:
-        shutil.rmtree(tmp_root, ignore_errors=True)
+        if artifact_mode != "local":
+            shutil.rmtree(tmp_root, ignore_errors=True)
+        else:
+            log_info(f"Local prepared artifacts kept at: {srcdest}")
     return 0
 
 
@@ -3367,11 +3741,10 @@ def show_help() -> None:
         "  validate <pkgname-or-path>\n"
         "  discover\n"
         "  detect-updates <args>\n"
-        "  discover-binary-releases <args>\n"
         "  check-framework-boundaries\n"
         "  setup-user\n"
         "  preflight <pkgname-or-path>\n"
-        "  build-binary-release <pkgname-or-path> [args]\n"
+        "  prepare-artifacts <pkgname-or-path> [args]\n"
         "  run-publish <pkgname-or-path> [args]\n"
         "  run-test <pkgname-or-path>\n"
     )
@@ -3388,8 +3761,6 @@ def main(argv: list[str]) -> int:
             return command_validate(args)
         if command == "discover":
             return command_discover(args)
-        if command == "discover-binary-releases":
-            return command_discover_binary_releases(args)
         if command == "check-framework-boundaries":
             return command_check_framework_boundaries(args)
         if command == "detect-updates":
@@ -3402,8 +3773,8 @@ def main(argv: list[str]) -> int:
             return command_run_publish(args)
         if command == "run-test":
             return command_run_test(args)
-        if command == "build-binary-release":
-            return command_build_binary_release(args)
+        if command == "prepare-artifacts":
+            return command_prepare_artifacts(args)
         if command in {"-h", "--help", "help"}:
             show_help()
             return 0

@@ -1,6 +1,6 @@
 # Package Framework Design
 
-This repository is a small packaging framework, not a collection of hand-written AUR package repos. The long-term goal is that adding a package means adding package-scoped declarative inputs, not editing the shared CI or publishing flow for one-off behavior.
+This repository is a small packaging framework, not a collection of hand-written AUR package repos. The long-term goal is that adding a package means adding package-scoped declarative components, not editing the shared CI or publishing flow for one-off behavior.
 
 ## Design goals
 
@@ -44,7 +44,7 @@ Each framework component should have one job and a narrow interface:
 |---|---|---|
 | Package loader / normalizer | Load PackageSpec v1 `package.toml`, validate schema/type rules, and normalize it into one internal package model | Resolve upstream, render packages, or publish |
 | Upstream resolver | Produce `RESOLVED_VERSION`, `RESOLVED_SOURCE_URL_*`, and optional `STATE_*` values | Clone AUR, build, render, validate, or publish |
-| Binary-release producer | Build declared upstream sources into GitHub binary-release assets | Publish AUR packages or add workflow package branches |
+| Artifact preparer | Produce or locate declared artifacts such as GitHub Release archives | Publish AUR packages or add workflow package branches |
 | Packaging template | Render temporary packaging outputs and build package candidates from normalized state | Resolve upstream, read detector cache, or mutate the package source of truth |
 | Install/service renderer | Generate or copy declared install/service assets | Decide package update policy or publish behavior |
 | Smoke-check runner | Verify installed files and commands declared by the package | Replace real package builds or make publish decisions |
@@ -78,7 +78,10 @@ Package-local files should be declared by semantic role, such as patches, local 
   - **package validation** for build/install/smoke-check verification
   - **smoke checks** for installed-file and command assertions
   - **publish path** for the AUR staging/commit/push flow
-  - **binary-release asset** for repo-built GitHub Release assets consumed by `-bin` packages
+  - **artifact** for generated or externally stored build products used as package sources
+  - **recipe** for the framework-owned instructions that produce an artifact
+  - **storage** for the optional backend where an artifact can be reused or published
+  - **source entry** for a rendered `PKGBUILD` `source=()` / `source_<arch>=()` item
 - Use kebab-case `scripts/aurpkg.py` and `scripts/ci.sh` command names in docs and workflows.
 
 Generated AUR outputs must not be committed under `packages/`:
@@ -95,14 +98,15 @@ The shared flow is always:
 
 1. discover package directories by finding PackageSpec v1 `package.toml`
 2. load, validate, and normalize the package spec
-3. resolve upstream version and source URLs
-4. prepare a temporary workspace
-5. render package outputs
-6. refresh checksums and generate `.SRCINFO`
-7. build as the non-root `builder` user in CI/root paths
-8. install the package in the validation environment
-9. run smoke checks
-10. publish rendered outputs to AUR only after validation passes
+3. resolve upstream version and direct source URLs
+4. prepare declared package artifacts
+5. prepare a temporary workspace
+6. render package outputs
+7. refresh checksums and generate `.SRCINFO`
+8. build as the non-root `builder` user in CI/root paths
+9. install the package in the validation environment
+10. run smoke checks
+11. publish rendered outputs to AUR only after validation passes
 
 Workflows should stay thin and call `scripts/ci.sh`. CI bootstrap and event/env argument wiring belong in `scripts/ci.sh`; package framework behavior belongs in `scripts/aurpkg.py`. Workflows should not gain package-specific jobs, matrices, or shell branches.
 
@@ -113,11 +117,13 @@ Shared scripts may branch on framework concepts. These are acceptable because pa
 | Concept | Field | Examples |
 |---|---|---|
 | Package renderer | top-level `template` | `binary-archive`, `deb-repack`, `appimage-desktop`, `source-meson` |
-| Upstream resolver | `[upstream] type` | `github-release-assets`, `custom-hook` |
+| Upstream resolver | `[upstream] type` | `github-release`, `github-release-assets`, `custom-hook` |
+| Artifact recipe | `[artifacts.<name>.recipe] type` | `cargo-build` |
+| Artifact storage | `[artifacts.<name>.storage] type` | `github-release` |
+| Source entry | `[sources.<name>] artifact` | `zellij-binary` |
 | Install script | `[install] mode` | `none`, `generated`, `static` |
 | Service unit | `[service] mode` | `none`, `generated`, `static` |
 | Service scope | `[service] scope` | `user`, `system` |
-| Binary-release asset builder | `[binary_release] template` | `source-cargo` |
 
 Shared scripts must not branch on package names.
 
@@ -204,22 +210,22 @@ Current PackageSpec v1 rules:
 - The loader rejects unknown keys/tables and wrong value types before any packaging logic runs.
 - The loader normalizes TOML tables into the same internal shell model consumed by resolvers, templates, validation, and publishing.
 - Package specs are declarative TOML only; executable logic belongs in explicit package-local hooks or framework components.
-- Package specs must not cross-reference shell variables. Template placeholders are expanded by the framework from a small allowlist, for example `'''${pkgname}'''`, `'''${pkgver}'''`, `'''${carch}'''`, `'''${upstream_version}'''`, and `'''${release_rev}'''`.
+- Package specs must not cross-reference shell variables. Template placeholders are expanded by the framework from a small allowlist, for example `'''${pkgname}'''`, `'''${pkgver}'''`, `'''${carch}'''`, `'''${upstream_version}'''`, `'''${artifact_rev}'''`, and `'''${artifact_version}'''`.
 - Local package assets are declared by role through fields such as `[files] patches`, `[files] docs`, `[files] licenses`, `[install] file`, `[service] file`, wrapper fields, and `[tests]` fields.
 
 The TOML frontend remains only a frontend. Do not let it become a package-authored language with imports, inheritance, conditionals, or execution.
 
-Binary-release producer/consumer behavior is modeled as a first-class `[binary_release]` component, not as a workflow special case.
+Produced or downloaded package artifacts are modeled as first-class `[artifacts.<name>]` entries with `[artifacts.<name>.recipe]`, `[artifacts.<name>.storage]`, and `[sources.<name>]` consumers, not as workflow special cases.
 
 ```mermaid
 flowchart TD
     A[package.toml] --> B[strict TOML parser]
     B --> C[normalized package model]
     C --> D[upstream resolver]
+    C --> H[artifact preparer]
     C --> E[packaging template]
     C --> F[install/service renderer]
     C --> G[smoke-check runner]
-    C --> H[binary-release producer]
 ```
 
 ## Adding framework features
@@ -238,7 +244,7 @@ Prefer small, declarative fields over broad script rewrites. Keep template chang
 These are framework limitations, not package-specific exceptions:
 
 - Architecture support is currently centered on `x86_64` and `aarch64` in several helpers.
-- `source-cargo` binary release generation currently supports `x86_64` only.
+- The `cargo-build` artifact recipe currently supports `x86_64` only.
 - Existing `hooks.sh` is executed in a Bash subprocess; the framework guards against PackageSpec field mutation during hook load and upstream resolution and only accepts whitelisted outputs.
 - Some non-GitHub upstreams still require package-local hooks; repeated patterns should be promoted to resolvers.
 
