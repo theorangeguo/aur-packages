@@ -71,15 +71,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          ARGS=(--cache-policy "$CACHE_POLICY" --dispatch-policy "$DISPATCH_POLICY")
-          if [ -n "$MANUAL_PACKAGE" ]; then
-            ARGS+=(--package "$MANUAL_PACKAGE")
-          elif [ "$DISPATCH_POLICY" = "selected" ]; then
-            echo "dispatch_policy=selected requires package" >&2
-            exit 1
-          fi
-
-          python3 scripts/aurpkg.py detect-updates "${ARGS[@]}"
+          scripts/ci.sh aur-publish-discover
 
       - name: Upload update detector state
         if: steps.set-matrix.outcome == 'success'
@@ -121,24 +113,10 @@ jobs:
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           CI: true
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          # 1. Install System Dependencies
-          pacman-key --init >/dev/null 2>&1
-          pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python
-
-          # 2. Fast metadata/asset preflight
-          python3 scripts/aurpkg.py preflight "${{ matrix.package }}"
-
-          # 3. Setup Build User
-          python3 scripts/aurpkg.py setup-user
-
-          # 4. Construct Arguments
-          ARGS=()
-          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then ARGS+=(--dry-run); fi
-
-          # 5. Run publish path with package validation
-          python3 scripts/aurpkg.py run-publish "${{ matrix.package }}" --verify-install "${ARGS[@]}"
+          scripts/ci.sh aur-publish-run "${{ matrix.package }}"
 
   save-detector-state:
     needs:

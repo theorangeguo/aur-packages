@@ -17,7 +17,7 @@ This repository contains my maintained Arch User Repository (AUR) packages. The 
 
 ## 🛠 Automation Workflow
 
-The system uses a single Python automation CLI [`scripts/aurpkg.py`](scripts/aurpkg.py) to handle the entire lifecycle:
+The package framework lives in [`scripts/aurpkg.py`](scripts/aurpkg.py). GitHub Actions call [`scripts/ci.sh`](scripts/ci.sh), a small CI entrypoint that keeps workflow YAML thin and delegates package behavior to `aurpkg.py`.
 
 1.  **Discovery**: Automatically scans the repository for PackageSpec v1 definitions (`package.toml` files).
 2.  **Resolve**: Fetches upstream versions and asset URLs.

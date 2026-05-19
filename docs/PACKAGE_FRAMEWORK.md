@@ -79,7 +79,7 @@ Package-local files should be declared by semantic role, such as patches, local 
   - **smoke checks** for installed-file and command assertions
   - **publish path** for the AUR staging/commit/push flow
   - **binary-release asset** for repo-built GitHub Release assets consumed by `-bin` packages
-- Use kebab-case `scripts/aurpkg.py` command names in docs and workflows.
+- Use kebab-case `scripts/aurpkg.py` and `scripts/ci.sh` command names in docs and workflows.
 
 Generated AUR outputs must not be committed under `packages/`:
 
@@ -104,7 +104,7 @@ The shared flow is always:
 9. run smoke checks
 10. publish rendered outputs to AUR only after validation passes
 
-Workflows should stay thin and call `python3 scripts/aurpkg.py`. They should not gain package-specific jobs, matrices, or shell branches.
+Workflows should stay thin and call `scripts/ci.sh`. CI bootstrap and event/env argument wiring belong in `scripts/ci.sh`; package framework behavior belongs in `scripts/aurpkg.py`. Workflows should not gain package-specific jobs, matrices, or shell branches.
 
 ## Framework dispatch points
 

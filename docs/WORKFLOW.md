@@ -65,11 +65,14 @@ flowchart LR
 | `python3 scripts/aurpkg.py preflight <pkgname-or-path>` | Resolve upstream metadata and asset selectors without building or publishing |
 | `python3 scripts/aurpkg.py run-test <pkgname-or-path>` | Build, install, and smoke-check one package |
 | `python3 scripts/aurpkg.py run-publish <pkgname-or-path> ...` | Resolve upstream state, render packaging outputs, optionally run package validation, and publish to AUR |
+| `scripts/ci.sh package-test-*` | CI entrypoint for package validation workflow bootstrap and dispatch |
+| `scripts/ci.sh aur-publish-*` | CI entrypoint for AUR publish workflow bootstrap and dispatch |
+| `scripts/ci.sh binary-release-*` | CI entrypoint for binary-release workflow bootstrap and dispatch |
 | `.github/workflows/build-binary-releases.yml` | Scheduled/manual/branch-push producer workflow for repo-built binary-release assets |
 | `.github/workflows/package-test.yml` | Pull request / push validation workflow |
 | `.github/workflows/aur-publish.yml` | Scheduled/manual publish workflow |
 
-The framework implementation lives in the single-file Python CLI `scripts/aurpkg.py`. It is the repository's only script entrypoint.
+There are three workflow files because they have different GitHub Actions concerns: triggers, permissions, secrets, container usage, and concurrency. They should remain thin event surfaces. Shared CI bootstrap and argument wiring belongs in `scripts/ci.sh`; package framework behavior belongs in `scripts/aurpkg.py`.
 
 Scheduled publishing starts with the update detector. Detector state is only an optimization: it records resolved upstream fingerprints so scheduled runs can avoid unnecessary AUR access, but the publish path still re-resolves upstream and compares against the live AUR repo before publishing.
 
@@ -100,11 +103,13 @@ For scheduled publishing, each `aur-publish.yml` package job runs a metadata pre
 
 ```mermaid
 flowchart TD
-    A[package-test.yml] --> B[python3 scripts/aurpkg.py run-test]
-    C[aur-publish.yml] --> D[python3 scripts/aurpkg.py run-publish --verify-install]
+    A[package-test.yml] --> B[scripts/ci.sh package-test-run]
+    C[aur-publish.yml] --> D[scripts/ci.sh aur-publish-run]
+    E[build-binary-releases.yml] --> F[scripts/ci.sh binary-release-run]
 
     B --> G[scripts/aurpkg.py package pipeline]
     D --> G
+    F --> R[scripts/aurpkg.py binary-release producer]
 
     G --> H[resolve]
     H --> I[render]

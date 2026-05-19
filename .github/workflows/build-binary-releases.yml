@@ -52,21 +52,7 @@ jobs:
           PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
           PUSH_SHA: ${{ github.sha }}
         run: |
-          set -euo pipefail
-
-          if [ -n "$MANUAL_UPSTREAM_VERSION" ] && [ -z "$MANUAL_PACKAGE" ]; then
-            echo "workflow_dispatch upstream_version requires package" >&2
-            exit 1
-          fi
-
-          ARGS=()
-          if [ -n "$MANUAL_PACKAGE" ]; then
-            ARGS+=(--package "$MANUAL_PACKAGE")
-          elif [ "$EVENT_NAME" = "push" ] && [ -n "$PUSH_BEFORE_SHA" ] && [ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            ARGS+=(--base-ref "$PUSH_BEFORE_SHA" --head-ref "$PUSH_SHA")
-          fi
-
-          python3 scripts/aurpkg.py discover-binary-releases "${ARGS[@]}"
+          scripts/ci.sh binary-release-discover
 
   build:
     needs: discovery
@@ -86,14 +72,4 @@ jobs:
           MANUAL_UPSTREAM_VERSION: ${{ github.event.inputs.upstream_version || '' }}
           FORCE_REBUILD: ${{ github.event.inputs.force || 'false' }}
         run: |
-          set -euo pipefail
-
-          ARGS=()
-          if [ -n "$MANUAL_UPSTREAM_VERSION" ]; then
-            ARGS+=(--upstream-version "$MANUAL_UPSTREAM_VERSION")
-          fi
-          if [ "$FORCE_REBUILD" = "true" ]; then
-            ARGS+=(--force)
-          fi
-
-          python3 scripts/aurpkg.py build-binary-release "${{ matrix.package }}" "${ARGS[@]}"
+          scripts/ci.sh binary-release-run "${{ matrix.package }}"
