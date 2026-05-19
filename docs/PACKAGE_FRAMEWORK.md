@@ -217,6 +217,90 @@ The TOML frontend remains only a frontend. Do not let it become a package-author
 
 Produced or downloaded package artifacts are modeled as first-class `[artifacts.<name>]` entries with `[artifacts.<name>.recipe]`, `[artifacts.<name>.storage]`, and `[sources.<name>]` consumers, not as workflow special cases.
 
+## Target PackageSpec input model
+
+Current PackageSpec v1 still uses `[upstream]`, `[artifacts]`, and `[sources]`. Future schema work should converge on a unified input-domain model with these boundaries:
+
+| Target table | Role | Must not do |
+|---|---|---|
+| `[version]` | Decide package identity (`pkgver`) from a fixed value, an origin, an artifact version, or a narrow version hook | Declare files or build artifacts |
+| `[origins.*]` | Provide external metadata such as GitHub release tags, asset lists, registry versions, or release pages | Render directly into `PKGBUILD source=()` or mutate package identity by itself |
+| `[inputs.sources.*]` | Declare every `PKGBUILD` source entry, including release assets, direct URLs, local files, VCS sources, and artifact outputs | Build, upload, or cache generated artifacts as hidden side effects |
+| `[inputs.artifacts.*]` | Declare generated or reusable artifacts plus framework-owned recipes/storage | Decide `pkgver` implicitly or render into `PKGBUILD` without an explicit source entry |
+
+The design intent is:
+
+```text
+origins -> version
+origins -> inputs.sources
+origins -> inputs.artifacts
+inputs.artifacts -> inputs.sources
+inputs.sources -> PKGBUILD source entries
+```
+
+Rules for this model:
+
+- `version` stays top-level because package identity is not just another input file.
+- `origins` stay top-level because they can feed `version`, `inputs.sources`, and `inputs.artifacts`; they are external metadata providers, not package inputs themselves.
+- `inputs` is the fixed namespace for things that either become package sources or produce files that become package sources.
+- All files consumed by `makepkg` must be visible under `inputs.sources.*`; avoid hiding source entries inside version resolvers or artifact recipes.
+- Artifacts remain separate from sources because recipes/storage have side effects such as build, cache lookup, or release upload. A source may consume an artifact, but source resolution should not secretly become a build pipeline.
+- Keep the lifecycle fixed: resolve version/origins, prepare artifacts, resolve sources, render/build/test/publish. Do not add package-authored ordered steps, loops, conditionals, imports, or arbitrary commands.
+
+Example target shape for a GitHub release asset package:
+
+```toml
+[version]
+from = "origin"
+origin = "release"
+
+[origins.release]
+type = "github-release"
+repo = "lbjlaq/Antigravity-Manager"
+tag_prefix = "v"
+
+[inputs.sources.deb]
+from = "github-release-asset"
+origin = "release"
+arch = "x86_64"
+selector = '''^Antigravity\.Tools_.*_amd64\.deb$'''
+rename = '''${pkgname}-${pkgver}-x86_64.deb'''
+```
+
+Example target shape for a repo-built artifact consumed as a source:
+
+```toml
+[version]
+from = "artifact"
+artifact = "zellij-binary"
+
+[origins.zellij]
+type = "github-release"
+repo = "zellij-org/zellij"
+tag_prefix = "v"
+
+[inputs.artifacts.zellij-binary]
+type = "archive"
+rev = 1
+version_template = '''${origin.version}.r${artifact.rev}'''
+arches = ["x86_64"]
+
+[inputs.artifacts.zellij-binary.recipe]
+type = "cargo-build"
+origin = "zellij"
+
+[inputs.artifacts.zellij-binary.storage]
+type = "github-release"
+repo = "orange-guo/aur-packages"
+tag = '''${pkgname}-v${artifact.version}'''
+
+[inputs.sources.binary]
+from = "artifact"
+artifact = "zellij-binary"
+arch = "x86_64"
+rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+```
+
 ```mermaid
 flowchart TD
     A[package.toml] --> B[strict TOML parser]
