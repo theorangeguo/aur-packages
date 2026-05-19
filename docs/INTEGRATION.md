@@ -7,7 +7,6 @@ For the higher-level workflow architecture, see [WORKFLOW.md](WORKFLOW.md).
 Core workflows:
 - `.github/workflows/aur-publish.yml` for scheduled/manual publish to AUR
 - `.github/workflows/package-test.yml` for package validation on pull requests, pushes, and manual runs
-- `.github/workflows/build-binary-releases.yml` for scheduled/manual/branch-push production of repo-built binary-release assets
 
 All manually dispatched workflows accept an optional single-package input so you can rerun one package without fanning out across the whole repository.
 
@@ -24,7 +23,7 @@ For publishing, configure these repository secrets or variables:
 
 The private key must be unencrypted.
 
-`package-test.yml` and `build-binary-releases.yml` do not require AUR publishing secrets.
+`package-test.yml` does not require AUR publishing secrets.
 
 ## 2. Package Configuration
 
@@ -44,12 +43,12 @@ packages/
 
 ## 3. How It Works
 
-The workflows in `.github/workflows/aur-publish.yml`, `.github/workflows/package-test.yml`, and `.github/workflows/build-binary-releases.yml` delegate CI bootstrap and event/env argument wiring to `scripts/ci.sh`. That CI entrypoint delegates package framework behavior to `scripts/aurpkg.py`.
+The workflows in `.github/workflows/aur-publish.yml` and `.github/workflows/package-test.yml` delegate CI bootstrap and event/env argument wiring to `scripts/ci.sh`. That CI entrypoint delegates package framework behavior to `scripts/aurpkg.py`.
 
 The validation workflow reuses the same discovery matrix, but runs `scripts/ci.sh package-test-run <pkgname-or-path>` instead of publishing. The publish workflow uses the same package validation path before it stages and pushes updates to AUR.
 
 ### Phase 1: Discovery
-- **Command**: `scripts/ci.sh package-test-discover` for validation, `scripts/ci.sh aur-publish-discover` for AUR publish, or `scripts/ci.sh binary-release-discover` for binary releases
+- **Command**: `scripts/ci.sh package-test-discover` for validation or `scripts/ci.sh aur-publish-discover` for AUR publish
 - **Action**: scans for directories containing PackageSpec v1 `package.toml`
 - **Output**: GitHub Actions matrix JSON
 
@@ -60,15 +59,16 @@ For each package in `package-test.yml`:
 
 1. Install dependencies in the Arch container
 2. Create the non-root `builder` user
-3. Resolve upstream version and asset URLs
-4. Render a temporary `PKGBUILD` and optional generated assets
-5. Run `updpkgsums`
-6. Generate `.SRCINFO`
-7. Build with `makepkg`
-8. Install the built package with `pacman -U`
-9. Run smoke checks against the installed files
+3. Resolve upstream version and direct source URLs
+4. Prepare declared package artifacts in safe local mode
+5. Render a temporary `PKGBUILD` and optional generated assets
+6. Run `updpkgsums`
+7. Generate `.SRCINFO`
+8. Build with `makepkg`
+9. Install the built package with `pacman -U`
+10. Run smoke checks against the installed files
 
-For `aur-publish.yml`, the same build and smoke-check path runs first, then the workflow syncs and pushes the rendered package contents to AUR only if package validation passes.
+For `aur-publish.yml`, the same build and smoke-check path runs first. If a package declares missing publishable artifacts, the publish path can create the GitHub Release artifact before rendering. It then syncs and pushes the rendered package contents to AUR only if package validation passes.
 
 ## 4. Local Testing
 

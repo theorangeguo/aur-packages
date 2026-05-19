@@ -17,19 +17,20 @@ conflicts = ["zellij", "zellij-bin", "zellij-git", "zellij-no-mouse-resize"]
 validpgpkeys = []
 
 [upstream]
-type = "github-release-assets"
-repo = "orange-guo/aur-packages"
-release_tag_prefix = "zellij-no-mouse-resize-bin-v"
-tag_prefix = "zellij-no-mouse-resize-bin-v"
-
-[upstream.assets.x86_64]
-asset_name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''
-source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+type = "github-release"
+repo = "zellij-org/zellij"
+tag_prefix = "v"
 
 [package]
 binary_name = "zellij"
 binary_source_path = "zellij"
 install_bin_path = "/usr/bin/zellij"
+version_artifact = "zellij-binary"
+
+[sources.zellij-binary]
+artifact = "zellij-binary"
+arch = "x86_64"
+rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
 
 [files]
 docs = ["README.md"]
@@ -44,16 +45,16 @@ mode = "none"
 [tests]
 commands = ["/usr/bin/zellij --version"]
 
-[binary_release]
-enabled = true
-template = "source-cargo"
+[artifacts.zellij-binary]
+type = "archive"
 rev = 1
-version_template = '''${upstream_version}.r${release_rev}'''
-tag_prefix = "zellij-no-mouse-resize-bin-v"
-repo = "orange-guo/aur-packages"
+version_template = '''${upstream_version}.r${artifact_rev}'''
 arches = ["x86_64"]
+
+[artifacts.zellij-binary.recipe]
+type = "cargo-build"
 source_dir = '''zellij-${upstream_version}'''
-patch_files = ["files/0001-gate-mouse-resize-behind-advanced-actions.patch"]
+patches = ["files/0001-gate-mouse-resize-behind-advanced-actions.patch"]
 makedepends = ["ca-certificates", "curl", "git", "patch", "rust", "tar"]
 cargo_fetch_args = []
 cargo_build_args = ["--release", "--frozen"]
@@ -65,10 +66,15 @@ archive_files = [
   "README.md:README.md:644",
 ]
 
-[binary_release.upstream]
+[artifacts.zellij-binary.recipe.source]
 type = "github-source-archive"
 repo = "zellij-org/zellij"
 tag_prefix = "v"
 
-[binary_release.assets.x86_64]
-name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''
+[artifacts.zellij-binary.storage]
+type = "github-release"
+repo = "orange-guo/aur-packages"
+tag_prefix = "zellij-no-mouse-resize-bin-v"
+
+[artifacts.zellij-binary.outputs.x86_64]
+asset_name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''

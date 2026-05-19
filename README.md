@@ -20,17 +20,18 @@ This repository contains my maintained Arch User Repository (AUR) packages. The 
 The package framework lives in [`scripts/aurpkg.py`](scripts/aurpkg.py). GitHub Actions call [`scripts/ci.sh`](scripts/ci.sh), a small CI entrypoint that keeps workflow YAML thin and delegates package behavior to `aurpkg.py`.
 
 1.  **Discovery**: Automatically scans the repository for PackageSpec v1 definitions (`package.toml` files).
-2.  **Resolve**: Fetches upstream versions and asset URLs.
-3.  **Render**: Generates a temporary `PKGBUILD`, optional `.install`, and other packaging assets.
-4.  **Build**: Verifies the package builds successfully in a clean environment.
-5.  **Package Validation**: Installs the built package and runs package-level smoke checks.
-6.  **Publish**: Pushes the rendered package contents to AUR only after package validation passes.
+2.  **Resolve**: Fetches upstream versions and direct source URLs.
+3.  **Prepare Artifacts**: Produces or locates declared artifacts such as repo-built GitHub Release archives.
+4.  **Render**: Generates a temporary `PKGBUILD`, optional `.install`, and other packaging assets.
+5.  **Build**: Verifies the package builds successfully in a clean environment.
+6.  **Package Validation**: Installs the built package and runs package-level smoke checks.
+7.  **Publish**: Pushes the rendered package contents to AUR only after package validation passes.
 
 The package validation workflow and the publish workflow share the same smoke-check path, so scheduled AUR publishes are gated on the same package-level checks used in pull requests.
 
 For a deeper explanation of the moving parts, see [docs/WORKFLOW.md](docs/WORKFLOW.md). For framework boundaries and package extension rules, see [docs/PACKAGE_FRAMEWORK.md](docs/PACKAGE_FRAMEWORK.md).
 
-The publish workflow runs automatically **every 6 hours**. Package validation runs on pull requests, pushes to `main`, and manual dispatches. The binary-release producer runs on schedule, manual dispatch, and non-`main` branch pushes that touch relevant files.
+The publish workflow runs automatically **every 6 hours**. Package validation runs on pull requests, pushes to `main`, and manual dispatches.
 
 ## 💻 Local Usage
 
@@ -40,6 +41,7 @@ You can use `scripts/aurpkg.py` to test changes locally.
 *   Arch Linux based system (or container)
 *   `sudo` privileges
 *   Docker or Podman for local `run-test`
+*   `github-cli` (`gh`) only when publishing missing GitHub Release artifacts
 
 ### Commands
 

@@ -15,8 +15,6 @@ Commands:
   package-test-run <pkgname-or-path>
   aur-publish-discover
   aur-publish-run <pkgname-or-path>
-  binary-release-discover
-  binary-release-run <pkgname-or-path>
 USAGE
 }
 
@@ -61,6 +59,16 @@ install_arch_deps() {
         pacman -Syu --needed --noconfirm git openssh pacman-contrib sudo curl jq python
 }
 
+install_github_cli() {
+    if command -v gh >/dev/null 2>&1; then
+        return 0
+    fi
+    [ -f /etc/arch-release ] || fail "gh is required outside Arch CI containers"
+    [ "$(id -u)" -eq 0 ] || fail "GitHub CLI installation must run as root"
+    log "Installing GitHub CLI for artifact publishing"
+    retry "Install GitHub CLI" pacman -S --needed --noconfirm github-cli
+}
+
 aurpkg() {
     if ! command -v python3 >/dev/null 2>&1; then
         install_arch_deps
@@ -90,7 +98,7 @@ package_test_run() {
     package_arg=$(require_package_arg "$@")
     install_arch_deps
     aurpkg setup-user
-    CI=true aurpkg run-test "${package_arg}"
+    CI=true aurpkg run-test "${package_arg}" --artifact-mode local
 }
 
 aur_publish_discover() {
@@ -118,40 +126,11 @@ aur_publish_run() {
 
     if [ "${DRY_RUN:-false}" = "true" ]; then
         args+=(--dry-run)
+    else
+        install_github_cli
     fi
 
     aurpkg run-publish "${package_arg}" --verify-install "${args[@]}"
-}
-
-binary_release_discover() {
-    local args=()
-
-    if [ -n "${MANUAL_UPSTREAM_VERSION:-}" ] && [ -z "${MANUAL_PACKAGE:-}" ]; then
-        fail "workflow_dispatch upstream_version requires package"
-    fi
-
-    if [ -n "${MANUAL_PACKAGE:-}" ]; then
-        args+=(--package "${MANUAL_PACKAGE}")
-    elif [ "${EVENT_NAME:-}" = "push" ] && [ -n "${PUSH_BEFORE_SHA:-}" ] && [ "${PUSH_BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]; then
-        args+=(--base-ref "${PUSH_BEFORE_SHA}" --head-ref "${PUSH_SHA:-}")
-    fi
-
-    aurpkg discover-binary-releases "${args[@]}"
-}
-
-binary_release_run() {
-    local package_arg
-    package_arg=$(require_package_arg "$@")
-    local args=()
-
-    if [ -n "${MANUAL_UPSTREAM_VERSION:-}" ]; then
-        args+=(--upstream-version "${MANUAL_UPSTREAM_VERSION}")
-    fi
-    if [ "${FORCE_REBUILD:-false}" = "true" ]; then
-        args+=(--force)
-    fi
-
-    aurpkg build-binary-release "${package_arg}" "${args[@]}"
 }
 
 command=${1:-}
@@ -176,12 +155,6 @@ case "${command}" in
         ;;
     aur-publish-run)
         aur_publish_run "$@"
-        ;;
-    binary-release-discover)
-        binary_release_discover
-        ;;
-    binary-release-run)
-        binary_release_run "$@"
         ;;
     -h|--help|help)
         usage
