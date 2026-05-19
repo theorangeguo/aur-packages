@@ -13,11 +13,13 @@ options = ["!strip"]
 provides = ["vibe-kanban"]
 conflicts = ["vibe-kanban"]
 
-[upstream]
-type = "custom-hook"
+[version]
+from = "hook"
 
-[upstream.assets.x86_64]
-source_rename = '''${pkgname}-${pkgver}-x86_64.zip'''
+[inputs.sources.binary]
+from = "hook"
+arch = "x86_64"
+rename = '''${pkgname}-${pkgver}-x86_64.zip'''
 
 [state]
 persist = ["BINARY_TAG"]

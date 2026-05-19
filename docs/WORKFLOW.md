@@ -42,7 +42,7 @@ flowchart TD
     K --> L[publish rendered files to AUR]
 ```
 
-The critical point is that **publish is gated by the same package validation path used in pull requests**. Packages that need repo-built products declare them under `[artifacts]`; the normal package lifecycle either verifies an existing artifact, builds a local artifact for validation, or publishes the missing GitHub Release artifact before rendering the AUR package.
+The critical point is that **publish is gated by the same package validation path used in pull requests**. Packages that need repo-built products declare them under `[inputs.artifacts]`; the normal package lifecycle either verifies an existing artifact, builds a local artifact for validation, or publishes the missing GitHub Release artifact before rendering the AUR package.
 
 ## 3. Main Entry Points
 

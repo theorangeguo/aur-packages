@@ -13,14 +13,21 @@ options = ["!strip"]
 provides = ["fingerprint-chromium"]
 conflicts = ["fingerprint-chromium"]
 
-[upstream]
-type = "github-release-assets"
+[version]
+from = "origin"
+origin = "release"
+
+[origins.release]
+type = "github-release"
 repo = "adryfish/fingerprint-chromium"
 tag_prefix = ""
 
-[upstream.assets.x86_64]
+[inputs.sources.appimage]
+from = "github-release-asset"
+origin = "release"
+arch = "x86_64"
 selector = '''^ungoogled-chromium-.*-x86_64\.AppImage$'''
-source_rename = '''${pkgname}-${pkgver}-x86_64.AppImage'''
+rename = '''${pkgname}-${pkgver}-x86_64.AppImage'''
 
 [package]
 binary_name = "fingerprint-chromium"

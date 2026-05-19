@@ -32,7 +32,7 @@ VALID_ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 VALID_PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9._+-]+$")
 VALID_COMPONENT_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 VALID_PACKAGE_PATH_RE = re.compile(r"^packages/[A-Za-z0-9._-]+$")
-TEMPLATE_PLACEHOLDER_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
+TEMPLATE_PLACEHOLDER_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_.]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
@@ -77,6 +77,7 @@ TABLE_KEYS = {
     },
     "upstream": {
         "type",
+        "value",
         "repo",
         "repo_user",
         "repo_name",
@@ -142,6 +143,9 @@ ARTIFACT_RECIPE_SOURCE_KEYS = {"type", "repo", "repo_user", "repo_name", "tag_pr
 ARTIFACT_STORAGE_KEYS = {"type", "repo", "repo_user", "repo_name", "tag_prefix"}
 ARTIFACT_OUTPUT_KEYS = {"asset_name"}
 SOURCE_KEYS = {"artifact", "arch", "rename"}
+INPUT_SOURCE_KEYS = {"from", "origin", "artifact", "arch", "selector", "asset_name", "rename", "url"}
+VERSION_KEYS = {"from", "origin", "artifact", "value"}
+ORIGIN_KEYS = {"type", "repo", "repo_user", "repo_name", "tag_prefix", "release_tag_prefix", "allow_prerelease"}
 ARTIFACT_MODES = {"readonly", "local", "publish", "force"}
 
 
@@ -312,8 +316,151 @@ def load_spec(path: str) -> dict[str, Any]:
 
     if not isinstance(data, dict):
         fail(f"PackageSpec root must be a TOML table: {path}")
+    data = normalize_input_domain_schema(data, path)
     validate_spec(data, path)
     return data
+
+
+def normalize_input_domain_schema(data: dict[str, Any], path: str) -> dict[str, Any]:
+    if not any(key in data for key in ("version", "origins", "inputs")):
+        return data
+    legacy_keys = {"upstream", "artifacts", "sources"}
+    if any(key in data for key in legacy_keys):
+        fail(f"PackageSpec must not mix [version]/[origins]/[inputs] with legacy tables in {path}: {', '.join(sorted(legacy_keys & set(data)))}")
+
+    normalized = dict(data)
+    version = normalized.pop("version", None)
+    origins = normalized.pop("origins", {})
+    inputs = normalized.pop("inputs", {})
+    if not isinstance(version, dict):
+        fail(f"[version] is required and must be a TOML table in {path}")
+    if not isinstance(origins, dict):
+        fail(f"[origins] must be a TOML table in {path}")
+    if not isinstance(inputs, dict):
+        fail(f"[inputs] must be a TOML table in {path}")
+    reject_unknown_keys(version, VERSION_KEYS, f"{path} [version]")
+    reject_unknown_keys(inputs, {"sources", "artifacts"}, f"{path} [inputs]")
+
+    for origin_name, origin in origins.items():
+        if not VALID_COMPONENT_NAME_RE.fullmatch(origin_name):
+            fail(f"Unsupported origin name in {path} [origins]: {origin_name}")
+        if not isinstance(origin, dict):
+            fail(f"{path} [origins.{origin_name}] must be a TOML table")
+        reject_unknown_keys(origin, ORIGIN_KEYS, f"{path} [origins.{origin_name}]")
+        require_string(origin, "type", f"{path} [origins.{origin_name}]")
+        optional_repo(origin, f"{path} [origins.{origin_name}]")
+        optional_string(origin, "tag_prefix", f"{path} [origins.{origin_name}]")
+        optional_string(origin, "release_tag_prefix", f"{path} [origins.{origin_name}]")
+        optional_bool(origin, "allow_prerelease", f"{path} [origins.{origin_name}]")
+
+    version_from = require_string(version, "from", f"{path} [version]")
+    package = dict(normalized.get("package", {}))
+    legacy_sources: dict[str, Any] = {}
+    legacy_artifacts: dict[str, Any] = {}
+    legacy_upstream: dict[str, Any]
+
+    input_sources = inputs.get("sources", {})
+    if not isinstance(input_sources, dict):
+        fail(f"{path} [inputs.sources] must be a TOML table")
+    input_artifacts = inputs.get("artifacts", {})
+    if not isinstance(input_artifacts, dict):
+        fail(f"{path} [inputs.artifacts] must be a TOML table")
+
+    def origin_table(origin_name: str, context: str) -> dict[str, Any]:
+        if origin_name not in origins:
+            fail(f"{context} references unknown origin in {path}: {origin_name}")
+        origin = dict(origins[origin_name])
+        return origin
+
+    if version_from == "origin":
+        version_origin = require_string(version, "origin", f"{path} [version]")
+        legacy_upstream = origin_table(version_origin, f"{path} [version]")
+    elif version_from == "hook":
+        legacy_upstream = {"type": "custom-hook"}
+    elif version_from == "fixed":
+        fixed_value = require_string(version, "value", f"{path} [version]")
+        legacy_upstream = {"type": "fixed", "value": fixed_value}
+    elif version_from == "artifact":
+        version_artifact = require_string(version, "artifact", f"{path} [version]")
+        package["version_artifact"] = version_artifact
+        artifact_table = input_artifacts.get(version_artifact)
+        if not isinstance(artifact_table, dict):
+            fail(f"[version] references unknown artifact in {path}: {version_artifact}")
+        recipe = artifact_table.get("recipe", {})
+        if not isinstance(recipe, dict):
+            fail(f"{path} [inputs.artifacts.{version_artifact}.recipe] must be a TOML table")
+        recipe_origin = require_string(recipe, "origin", f"{path} [inputs.artifacts.{version_artifact}.recipe]")
+        legacy_upstream = origin_table(recipe_origin, f"{path} [inputs.artifacts.{version_artifact}.recipe]")
+    else:
+        fail(f"Unsupported [version] from in {path}: {version_from}")
+
+    legacy_upstream.setdefault("assets", {})
+
+    for artifact_name, artifact in input_artifacts.items():
+        if not VALID_COMPONENT_NAME_RE.fullmatch(artifact_name):
+            fail(f"Unsupported artifact name in {path} [inputs.artifacts]: {artifact_name}")
+        if not isinstance(artifact, dict):
+            fail(f"{path} [inputs.artifacts.{artifact_name}] must be a TOML table")
+        legacy_artifact = dict(artifact)
+        recipe = dict(legacy_artifact.get("recipe", {}))
+        recipe_origin = recipe.pop("origin", "")
+        if recipe_origin:
+            source_origin = origin_table(recipe_origin, f"{path} [inputs.artifacts.{artifact_name}.recipe]")
+            recipe_source = {"type": "github-source-archive" if source_origin.get("type") == "github-release" else source_origin.get("type", "")}
+            for key in ("repo", "repo_user", "repo_name", "tag_prefix"):
+                if source_origin.get(key):
+                    recipe_source[key] = source_origin[key]
+            recipe["source"] = recipe_source
+        legacy_artifact["recipe"] = recipe
+        legacy_artifacts[artifact_name] = legacy_artifact
+
+    common_source_seen = ""
+    build = dict(normalized.get("build", {}))
+    for source_name, source in input_sources.items():
+        if not VALID_COMPONENT_NAME_RE.fullmatch(source_name):
+            fail(f"Unsupported source name in {path} [inputs.sources]: {source_name}")
+        if not isinstance(source, dict):
+            fail(f"{path} [inputs.sources.{source_name}] must be a TOML table")
+        reject_unknown_keys(source, INPUT_SOURCE_KEYS, f"{path} [inputs.sources.{source_name}]")
+        source_from = require_string(source, "from", f"{path} [inputs.sources.{source_name}]")
+        arch = source.get("arch", "")
+        rename = source.get("rename", "")
+        if source_from == "github-release-asset":
+            source_origin = require_string(source, "origin", f"{path} [inputs.sources.{source_name}]")
+            if legacy_upstream.get("type") == "github-release" and source_origin == version.get("origin", ""):
+                legacy_upstream["type"] = "github-release-assets"
+            if source_origin != version.get("origin", ""):
+                fail(f"{path} [inputs.sources.{source_name}] currently must use the version origin for github-release-asset")
+            if not arch:
+                fail(f"{path} [inputs.sources.{source_name}] arch is required for github-release-asset")
+            legacy_upstream["assets"][arch] = {
+                "selector": source.get("selector", ""),
+                "asset_name": source.get("asset_name", ""),
+                "source_rename": rename,
+            }
+        elif source_from == "hook":
+            if arch:
+                legacy_upstream["assets"][arch] = {"source_rename": rename}
+            else:
+                if common_source_seen:
+                    fail(f"{path} [inputs.sources.{source_name}] and [inputs.sources.{common_source_seen}] both declare a common hook source")
+                common_source_seen = source_name
+                build.setdefault("source_rename", rename)
+        elif source_from == "artifact":
+            legacy_sources[source_name] = {
+                "artifact": require_string(source, "artifact", f"{path} [inputs.sources.{source_name}]"),
+                "arch": require_string(source, "arch", f"{path} [inputs.sources.{source_name}]"),
+                "rename": rename,
+            }
+        else:
+            fail(f"Unsupported source from in {path} [inputs.sources.{source_name}]: {source_from}")
+
+    normalized["package"] = package
+    normalized["build"] = build
+    normalized["upstream"] = legacy_upstream
+    normalized["artifacts"] = legacy_artifacts
+    normalized["sources"] = legacy_sources
+    return normalized
 
 
 def reject_unknown_keys(table: dict[str, Any], allowed: set[str], context: str) -> None:
@@ -716,6 +863,7 @@ class PackageSpec:
     upstream_tag_prefix: str
     upstream_release_tag_prefix: str
     upstream_allow_prerelease: bool
+    upstream_fixed_version: str
     asset_selectors: dict[str, str]
     upstream_asset_names: dict[str, str]
     source_renames: dict[str, str]
@@ -972,6 +1120,7 @@ def load_package(package_input: str) -> PackageSpec:
         upstream_tag_prefix=str_value(upstream, "tag_prefix"),
         upstream_release_tag_prefix=str_value(upstream, "release_tag_prefix"),
         upstream_allow_prerelease=bool_value(upstream, "allow_prerelease", False),
+        upstream_fixed_version=str_value(upstream, "value"),
         asset_selectors={arch: asset.get("selector", "") for arch, asset in upstream.get("assets", {}).items()},
         upstream_asset_names={arch: asset.get("asset_name", "") for arch, asset in upstream.get("assets", {}).items()},
         source_renames={arch: asset.get("source_rename", "") for arch, asset in upstream.get("assets", {}).items()},
@@ -1027,7 +1176,7 @@ def validate_normalized_package(pkg: PackageSpec) -> None:
         raise CliError(f"Package directory must match PKGNAME: {pkg.package_dir.name} != {pkg.name}")
     if pkg.template not in {"binary-archive", "deb-repack", "appimage-desktop", "source-meson"}:
         raise CliError(f"Unsupported PACKAGE_TEMPLATE in {config_path}: {pkg.template}")
-    if pkg.upstream_type not in {"github-release", "github-release-assets", "custom-hook"}:
+    if pkg.upstream_type not in {"github-release", "github-release-assets", "custom-hook", "fixed"}:
         raise CliError(f"Unsupported UPSTREAM_TYPE in {config_path}: {pkg.upstream_type}")
     if not pkg.arches:
         raise CliError(f"ARCHES must not be empty in {config_path}")
@@ -1183,6 +1332,7 @@ def emit_shell_for_package(pkg: PackageSpec, raw_defaults: bool = False) -> str:
     add_scalar("UPSTREAM_TAG_PREFIX", pkg.upstream_tag_prefix)
     add_scalar("UPSTREAM_RELEASE_TAG_PREFIX", pkg.upstream_release_tag_prefix)
     add_scalar("UPSTREAM_ALLOW_PRERELEASE", pkg.upstream_allow_prerelease)
+    add_scalar("UPSTREAM_FIXED_VERSION", pkg.upstream_fixed_version)
     for arch in sorted(set(pkg.asset_selectors) | set(pkg.upstream_asset_names) | set(pkg.source_renames)):
         suffix = shell_var_suffix(arch)
         add_scalar(f"ASSET_SELECTOR_{suffix}", pkg.asset_selectors.get(arch, ""))
@@ -1399,6 +1549,7 @@ def expand_template(
     pkgver: str = "",
     carch: str = "",
     upstream_version: str = "",
+    origin_version: str = "",
     release_rev: str = "",
     artifact_rev: str = "",
     artifact_name: str = "",
@@ -1407,13 +1558,21 @@ def expand_template(
     result = template
     values = {
         "pkgname": pkg.name,
+        "pkg.name": pkg.name,
         "pkgver": pkgver,
+        "pkg.version": pkgver,
         "carch": carch,
+        "arch": carch,
         "upstream_version": upstream_version,
+        "origin_version": origin_version or upstream_version,
+        "origin.version": origin_version or upstream_version,
         "release_rev": release_rev,
         "artifact_rev": artifact_rev,
+        "artifact.rev": artifact_rev,
         "artifact_name": artifact_name,
+        "artifact.name": artifact_name,
         "artifact_version": artifact_version,
+        "artifact.version": artifact_version,
     }
     for key, value in values.items():
         result = result.replace(f"${{{key}}}", value)
@@ -1694,7 +1853,7 @@ def resolve_github_release_version(pkg: PackageSpec) -> None:
 def hook_spec_vars(pkg: PackageSpec) -> list[str]:
     names = [
         "PACKAGE_SPEC_VERSION", "PKGNAME", "PACKAGE_TEMPLATE", "UPSTREAM_TYPE", "PKGDESC", "URL", "LICENSES", "ARCHES", "DEPENDS", "MAKEDEPENDS", "CHECKDEPENDS", "OPTDEPENDS", "OPTIONS", "PROVIDES", "CONFLICTS", "VALIDPGPKEYS", "PACKAGING_REPO_URL",
-        "UPSTREAM_REPO_USER", "UPSTREAM_REPO_NAME", "UPSTREAM_TAG_PREFIX", "UPSTREAM_RELEASE_TAG_PREFIX", "UPSTREAM_ALLOW_PRERELEASE",
+        "UPSTREAM_REPO_USER", "UPSTREAM_REPO_NAME", "UPSTREAM_TAG_PREFIX", "UPSTREAM_RELEASE_TAG_PREFIX", "UPSTREAM_ALLOW_PRERELEASE", "UPSTREAM_FIXED_VERSION",
         "SOURCE_RENAME", "BINARY_NAME", "BINARY_SOURCE_PATH", "INSTALL_BIN_PATH", "WRAPPER_SOURCE_PATH", "WRAPPER_INSTALL_PATH", "WRAPPER_MODE", "VERSION_ARTIFACT",
         "LOCAL_FILES", "PATCH_FILES", "DOC_FILES", "LICENSE_FILES", "INSTALL_MODE", "INSTALL_HINTS", "INSTALL_FILE", "SERVICE_MODE", "SERVICE_SCOPE", "SERVICE_NAME", "SERVICE_FILE", "SERVICE_EXEC", "SERVICE_RESTART", "SERVICE_RESTART_SEC",
         "DEB_RELOCATE_USR_LOCAL", "APPIMAGE_APPDIR_NAME", "APPIMAGE_INSTALL_DIR", "DESKTOP_CANDIDATES", "ICON_CANDIDATES", "DESKTOP_EXEC_REWRITE", "DESKTOP_NAME_REWRITE",
@@ -1800,6 +1959,8 @@ def dispatch_upstream_resolution(pkg: PackageSpec) -> None:
         resolve_github_release_assets(pkg)
     elif pkg.upstream_type == "custom-hook":
         run_custom_hook_resolution(pkg)
+    elif pkg.upstream_type == "fixed":
+        pkg.resolved_version = pkg.upstream_fixed_version
     else:
         raise CliError(f"Unsupported UPSTREAM_TYPE: {pkg.upstream_type}")
     if not pkg.resolved_version:

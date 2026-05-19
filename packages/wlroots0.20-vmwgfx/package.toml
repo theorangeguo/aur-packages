@@ -44,8 +44,12 @@ validpgpkeys = [
   "4100929B33EEB0FD1DB852797BC79407090047CA", # Sway signing key
 ]
 
-[upstream]
-type = "custom-hook"
+[version]
+from = "hook"
+
+[inputs.sources.source]
+from = "hook"
+rename = '''${pkgname}'''
 
 [build]
 source_rename = '''${pkgname}'''

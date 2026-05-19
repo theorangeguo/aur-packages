@@ -36,11 +36,11 @@
 
 ## Framework contract rules
 - Treat package definitions as a stable contract. `package.toml` is the current PackageSpec v1 frontend: strict TOML declarative data plus explicit extension points, not a programming language.
-- Prefer mechanism over solution: add reusable framework components such as upstream resolvers, packaging templates, artifact producers, install/service renderers, validation primitives, or publishers instead of package-specific workflow/script branches.
-- Prefer composition over integration: packages should combine independent components (`template`, `[upstream]`, `[artifacts]`, `[sources]`, `[install]`, `[service]`, `[tests]`) rather than opt into monolithic custom flows.
+- Prefer mechanism over solution: add reusable framework components such as version/origin resolvers, source resolvers, packaging templates, artifact producers, install/service renderers, validation primitives, or publishers instead of package-specific workflow/script branches.
+- Prefer composition over integration: packages should combine independent components (`template`, `[version]`, `[origins.*]`, `[inputs.sources.*]`, `[inputs.artifacts.*]`, `[install]`, `[service]`, `[tests]`) rather than opt into monolithic custom flows.
 - Keep package behavior package-local. Root manifests, if introduced, may only control discovery scope such as `packages/*/spec.yml`; they must not hold package behavior or become a second source of truth.
 - Keep component boundaries sharp: resolvers resolve upstream state only; artifact recipes produce artifacts only; artifact storage locates or publishes reusable artifacts only; sources declare PKGBUILD source entries only; templates render/build packages only; detectors optimize dispatch only; publishers validate and compare against live AUR state before push.
-- When evolving PackageSpec beyond the current v1 frontend, converge toward `[version]`, `[origins.*]`, `[inputs.sources.*]`, and `[inputs.artifacts.*]`: `version` decides package identity, `origins` provide external metadata, and `inputs` contains only things that become or produce packaging inputs.
+- PackageSpec v1 uses `[version]`, `[origins.*]`, `[inputs.sources.*]`, and `[inputs.artifacts.*]`: `version` decides package identity, `origins` provide external metadata, and `inputs` contains only things that become or produce packaging inputs.
 - Keep hooks narrow. Existing `hooks.sh` should only resolve upstream state; future spec hooks should be phase-specific subprocesses with whitelisted outputs, not sourced code that mutates framework internals.
 - Do not allow cross-package imports, remote includes, deep inheritance, loops, conditionals, or arbitrary command execution in package specs. Local files must be declared by role (patch, doc, license, service, wrapper, test asset), not blindly included.
 - Version package specs with `spec_version`, normalize package definitions into the same internal model, and fail fast on unsupported major schema versions.
@@ -48,7 +48,7 @@
 ## GitHub Actions failure triage
 - When investigating failed Actions, first use `gh run list` and `gh run view <run-id> --log-failed` to identify the exact failed package/job before editing.
 - Distinguish package-specific failures from transient infrastructure failures. Treat AUR clone failures, GitHub API timeouts, and network download failures as potentially transient unless repeated.
-- For GitHub release asset matching failures, inspect upstream release asset names and compare them against `[upstream.assets.<arch>]` selectors in the affected package.
+- For GitHub release asset matching failures, inspect upstream release asset names and compare them against `[inputs.sources.*]` selectors in the affected package.
 - Prefer tolerant architecture selectors when upstream naming commonly varies, such as accepting both `arm64` and `aarch64` where appropriate.
 - Keep fixes package-scoped unless repeated failures show the shared resolver or CI scripts are at fault.
 - After package config changes, run `python3 scripts/aurpkg.py run-publish <pkgname-or-path> --dry-run` as the minimum verification.
@@ -110,10 +110,10 @@ python3 scripts/aurpkg.py run-test <pkgname-or-path>
 ### `package.toml` style
 - Treat `package.toml` as the PackageSpec v1 source of truth.
 - Set `spec_version = 1` in every package definition.
-- Keep fields declarative and grouped by component: top-level metadata, `[upstream]`, `[package]`, `[artifacts]`, `[sources]`, `[build]`, `[files]`, `[install]`, `[service]`, and `[tests]`.
+- Keep fields declarative and grouped by component: top-level metadata, `[version]`, `[origins.*]`, `[inputs.sources.*]`, `[inputs.artifacts.*]`, `[package]`, `[build]`, `[files]`, `[install]`, `[service]`, and `[tests]`.
 - Prefer explicit arrays like `arches = ["x86_64"]`, `depends = []`, `licenses = ["MIT"]`.
-- Template selection should be declarative: top-level `template = "..."` and `[upstream] type = "..."`.
-- For GitHub-backed packages, use `[upstream] repo = "owner/name"`, `tag_prefix`, and `[upstream.assets.<arch>]` fields.
+- Template selection should be declarative: top-level `template = "..."`, `[version]`, and package input components.
+- For GitHub-backed packages, use `[origins.<name>] repo = "owner/name"`, `tag_prefix`, and `[inputs.sources.<name>] from = "github-release-asset"` fields.
 - If install smoke checks need package-specific assertions, use `[tests] paths`, `[tests] executables`, and `[tests] commands`.
 - Prefer package-local static files under `files/` over embedding large blobs in scripts.
 - Do not repeat binary packaging in `desc`; `-bin` in `name` is enough.
