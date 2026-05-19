@@ -16,18 +16,28 @@ provides = ["cpa-usage-keeper"]
 conflicts = ["cpa-usage-keeper"]
 validpgpkeys = []
 
-[upstream]
-type = "github-release-assets"
+[version]
+from = "origin"
+origin = "release"
+
+[origins.release]
+type = "github-release"
 repo = "Willxup/cpa-usage-keeper"
 tag_prefix = "v"
 
-[upstream.assets.x86_64]
+[inputs.sources.binary-x86_64]
+from = "github-release-asset"
+origin = "release"
+arch = "x86_64"
 selector = '''^cpa-usage-keeper_v.*_linux_amd64\.tar\.gz$'''
-source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
 
-[upstream.assets.aarch64]
+[inputs.sources.binary-aarch64]
+from = "github-release-asset"
+origin = "release"
+arch = "aarch64"
 selector = '''^cpa-usage-keeper_v.*_linux_(arm64|aarch64)\.tar\.gz$'''
-source_rename = '''${pkgname}-${pkgver}-aarch64.tar.gz'''
+rename = '''${pkgname}-${pkgver}-aarch64.tar.gz'''
 
 [package]
 binary_name = "cpa-usage-keeper"

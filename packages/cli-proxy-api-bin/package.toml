@@ -13,18 +13,28 @@ options = ["!strip"]
 provides = ["cli-proxy-api"]
 conflicts = ["cli-proxy-api"]
 
-[upstream]
-type = "github-release-assets"
+[version]
+from = "origin"
+origin = "release"
+
+[origins.release]
+type = "github-release"
 repo = "router-for-me/CLIProxyAPI"
 tag_prefix = "v"
 
-[upstream.assets.x86_64]
+[inputs.sources.binary-x86_64]
+from = "github-release-asset"
+origin = "release"
+arch = "x86_64"
 selector = '''^CLIProxyAPI_.*_linux_amd64\.tar\.gz$'''
-source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
 
-[upstream.assets.aarch64]
+[inputs.sources.binary-aarch64]
+from = "github-release-asset"
+origin = "release"
+arch = "aarch64"
 selector = '''^CLIProxyAPI_.*_linux_(arm64|aarch64)\.tar\.gz$'''
-source_rename = '''${pkgname}-${pkgver}-aarch64.tar.gz'''
+rename = '''${pkgname}-${pkgver}-aarch64.tar.gz'''
 
 [package]
 binary_name = "cli-proxy-api"

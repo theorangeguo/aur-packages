@@ -73,7 +73,7 @@ Package-local files should be declared by semantic role, such as patches, local 
 - Package directories must match the PackageSpec `name` exactly.
 - Prefer kebab-case package names. Versioned library packages may include a dot when that matches Arch naming conventions, such as `wlroots0.20-vmwgfx`.
 - Do not repeat binary packaging in `desc`; `-bin` in `name` is enough unless the upstream product name itself contains that wording.
-- Architecture-specific source rename fields should include the architecture in the rendered filename, for example `source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''` under `[upstream.assets.x86_64]`.
+- Architecture-specific source rename fields should include the architecture in the rendered filename, for example `rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''` under `[inputs.sources.<name>]`.
 - Prefer these user-facing terms:
   - **package validation** for build/install/smoke-check verification
   - **smoke checks** for installed-file and command assertions
@@ -117,10 +117,11 @@ Shared scripts may branch on framework concepts. These are acceptable because pa
 | Concept | Field | Examples |
 |---|---|---|
 | Package renderer | top-level `template` | `binary-archive`, `deb-repack`, `appimage-desktop`, `source-meson` |
-| Upstream resolver | `[upstream] type` | `github-release`, `github-release-assets`, `custom-hook` |
-| Artifact recipe | `[artifacts.<name>.recipe] type` | `cargo-build` |
-| Artifact storage | `[artifacts.<name>.storage] type` | `github-release` |
-| Source entry | `[sources.<name>] artifact` | `zellij-binary` |
+| Version resolver | `[version] from` | `origin`, `artifact`, `hook`, `fixed` |
+| Origin resolver | `[origins.<name>] type` | `github-release` |
+| Artifact recipe | `[inputs.artifacts.<name>.recipe] type` | `cargo-build` |
+| Artifact storage | `[inputs.artifacts.<name>.storage] type` | `github-release` |
+| Source entry | `[inputs.sources.<name>] from` | `github-release-asset`, `artifact`, `hook` |
 | Install script | `[install] mode` | `none`, `generated`, `static` |
 | Service unit | `[service] mode` | `none`, `generated`, `static` |
 | Service scope | `[service] scope` | `user`, `system` |
@@ -151,8 +152,17 @@ Good:
 ```toml
 template = "binary-archive"
 
-[upstream]
-type = "github-release-assets"
+[version]
+from = "origin"
+origin = "release"
+
+[origins.release]
+type = "github-release"
+
+[inputs.sources.binary]
+from = "github-release-asset"
+origin = "release"
+arch = "x86_64"
 
 [service]
 mode = "static"
@@ -162,7 +172,7 @@ file = "files/some-package.service"
 If a new package cannot be expressed with existing fields, decide whether the need is:
 
 1. a package-local upstream resolution quirk: add `hooks.sh`
-2. a repeated upstream pattern: add a generic `[upstream] type`
+2. a repeated external metadata pattern: add a generic `[origins.*] type`, `[version] from`, or `[inputs.sources.*] from`
 3. a repeated packaging layout: add or extend a `template`
 4. a one-off static asset: place it under package `files/`
 
@@ -210,18 +220,102 @@ Current PackageSpec v1 rules:
 - The loader rejects unknown keys/tables and wrong value types before any packaging logic runs.
 - The loader normalizes TOML tables into the same internal shell model consumed by resolvers, templates, validation, and publishing.
 - Package specs are declarative TOML only; executable logic belongs in explicit package-local hooks or framework components.
-- Package specs must not cross-reference shell variables. Template placeholders are expanded by the framework from a small allowlist, for example `'''${pkgname}'''`, `'''${pkgver}'''`, `'''${carch}'''`, `'''${upstream_version}'''`, `'''${artifact_rev}'''`, and `'''${artifact_version}'''`.
+- Package specs must not cross-reference shell variables. Template placeholders are expanded by the framework from a small allowlist, for example `'''${pkgname}'''`, `'''${pkgver}'''`, `'''${carch}'''`, `'''${origin_version}'''`, `'''${artifact_rev}'''`, and `'''${artifact_version}'''`.
 - Local package assets are declared by role through fields such as `[files] patches`, `[files] docs`, `[files] licenses`, `[install] file`, `[service] file`, wrapper fields, and `[tests]` fields.
 
 The TOML frontend remains only a frontend. Do not let it become a package-authored language with imports, inheritance, conditionals, or execution.
 
-Produced or downloaded package artifacts are modeled as first-class `[artifacts.<name>]` entries with `[artifacts.<name>.recipe]`, `[artifacts.<name>.storage]`, and `[sources.<name>]` consumers, not as workflow special cases.
+Produced or downloaded package artifacts are modeled as first-class `[inputs.artifacts.<name>]` entries with `[inputs.artifacts.<name>.recipe]`, `[inputs.artifacts.<name>.storage]`, and `[inputs.sources.<name>]` consumers, not as workflow special cases.
+
+## PackageSpec input model
+
+PackageSpec v1 uses a unified input-domain model with these boundaries:
+
+| Target table | Role | Must not do |
+|---|---|---|
+| `[version]` | Decide package identity (`pkgver`) from a fixed value, an origin, an artifact version, or a narrow version hook | Declare files or build artifacts |
+| `[origins.*]` | Provide external metadata such as GitHub release tags, asset lists, registry versions, or release pages | Render directly into `PKGBUILD source=()` or mutate package identity by itself |
+| `[inputs.sources.*]` | Declare every `PKGBUILD` source entry, including release assets, direct URLs, local files, VCS sources, and artifact outputs | Build, upload, or cache generated artifacts as hidden side effects |
+| `[inputs.artifacts.*]` | Declare generated or reusable artifacts plus framework-owned recipes/storage | Decide `pkgver` implicitly or render into `PKGBUILD` without an explicit source entry |
+
+The design intent is:
+
+```text
+origins -> version
+origins -> inputs.sources
+origins -> inputs.artifacts
+inputs.artifacts -> inputs.sources
+inputs.sources -> PKGBUILD source entries
+```
+
+Rules for this model:
+
+- `version` stays top-level because package identity is not just another input file.
+- `origins` stay top-level because they can feed `version`, `inputs.sources`, and `inputs.artifacts`; they are external metadata providers, not package inputs themselves.
+- `inputs` is the fixed namespace for things that either become package sources or produce files that become package sources.
+- All files consumed by `makepkg` must be visible under `inputs.sources.*`; avoid hiding source entries inside version resolvers or artifact recipes.
+- Artifacts remain separate from sources because recipes/storage have side effects such as build, cache lookup, or release upload. A source may consume an artifact, but source resolution should not secretly become a build pipeline.
+- Keep the lifecycle fixed: resolve version/origins, prepare artifacts, resolve sources, render/build/test/publish. Do not add package-authored ordered steps, loops, conditionals, imports, or arbitrary commands.
+
+Example shape for a GitHub release asset package:
+
+```toml
+[version]
+from = "origin"
+origin = "release"
+
+[origins.release]
+type = "github-release"
+repo = "lbjlaq/Antigravity-Manager"
+tag_prefix = "v"
+
+[inputs.sources.deb]
+from = "github-release-asset"
+origin = "release"
+arch = "x86_64"
+selector = '''^Antigravity\.Tools_.*_amd64\.deb$'''
+rename = '''${pkgname}-${pkgver}-x86_64.deb'''
+```
+
+Example shape for a repo-built artifact consumed as a source:
+
+```toml
+[version]
+from = "artifact"
+artifact = "zellij-binary"
+
+[origins.zellij]
+type = "github-release"
+repo = "zellij-org/zellij"
+tag_prefix = "v"
+
+[inputs.artifacts.zellij-binary]
+type = "archive"
+rev = 1
+version_template = '''${origin.version}.r${artifact.rev}'''
+arches = ["x86_64"]
+
+[inputs.artifacts.zellij-binary.recipe]
+type = "cargo-build"
+origin = "zellij"
+
+[inputs.artifacts.zellij-binary.storage]
+type = "github-release"
+repo = "orange-guo/aur-packages"
+tag = '''${pkgname}-v${artifact.version}'''
+
+[inputs.sources.binary]
+from = "artifact"
+artifact = "zellij-binary"
+arch = "x86_64"
+rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+```
 
 ```mermaid
 flowchart TD
     A[package.toml] --> B[strict TOML parser]
     B --> C[normalized package model]
-    C --> D[upstream resolver]
+    C --> D[version/origin resolver]
     C --> H[artifact preparer]
     C --> E[packaging template]
     C --> F[install/service renderer]
@@ -265,7 +359,7 @@ The package validation workflow runs the same guard.
 Before adding a package, answer these questions:
 
 1. Can the package be expressed with an existing `template`?
-2. Can upstream be resolved with an existing `[upstream] type`?
+2. Can version/source state be resolved with existing `[version]`, `[origins.*]`, or `[inputs.sources.*]` components?
 3. If `hooks.sh` is needed, does it only resolve upstream state?
 4. Are all static assets under package-local `files/`?
 5. Are smoke checks declared through `[tests] paths`, `executables`, or `commands`?

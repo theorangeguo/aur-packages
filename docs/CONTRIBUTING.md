@@ -23,7 +23,7 @@ Naming conventions:
 - Keep the package directory name identical to `name`.
 - Prefer kebab-case package names. Versioned library packages may include a dot when that matches Arch naming conventions, such as `wlroots0.20-vmwgfx`.
 - Let `-bin` in the package name communicate binary packaging; keep `desc` focused on the software itself rather than adding redundant `(Binary)` wording.
-- Include the architecture in architecture-specific source rename values, for example `source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''` under `[upstream.assets.x86_64]`.
+- Include the architecture in architecture-specific source rename values, for example `rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''` under `[inputs.sources.<name>]`.
 
 Typical binary package spec:
 
@@ -46,14 +46,21 @@ provides = ["my-package-name"]
 conflicts = ["my-package-name"]
 validpgpkeys = []
 
-[upstream]
-type = "github-release-assets"
+[version]
+from = "origin"
+origin = "release"
+
+[origins.release]
+type = "github-release"
 repo = "upstream-user/project"
 tag_prefix = "v"
 
-[upstream.assets.x86_64]
+[inputs.sources.binary]
+from = "github-release-asset"
+origin = "release"
+arch = "x86_64"
 selector = '''^project_.*_linux_amd64\.tar\.gz$'''
-source_rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
 
 [package]
 binary_name = "my-binary"
@@ -90,7 +97,11 @@ Useful optional fields:
 For packages whose consumed archives are produced by this repository first, keep the AUR side as `template = "binary-archive"` and declare package artifacts instead of adding a package-specific workflow:
 
 ```toml
-[upstream]
+[version]
+from = "artifact"
+artifact = "my-binary-archive"
+
+[origins.upstream]
 type = "github-release"
 repo = "upstream-user/upstream-project"
 tag_prefix = "v"
@@ -99,22 +110,23 @@ tag_prefix = "v"
 binary_name = "my-binary"
 binary_source_path = "my-binary"
 install_bin_path = "/usr/bin/my-binary"
-version_artifact = "my-binary-archive"
 
-[sources.my-binary-archive]
+[inputs.sources.my-binary-archive]
+from = "artifact"
 artifact = "my-binary-archive"
 arch = "x86_64"
 rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
 
-[artifacts.my-binary-archive]
+[inputs.artifacts.my-binary-archive]
 type = "archive"
 rev = 1
-version_template = '''${upstream_version}.r${artifact_rev}'''
+version_template = '''${origin_version}.r${artifact_rev}'''
 arches = ["x86_64"]
 
-[artifacts.my-binary-archive.recipe]
+[inputs.artifacts.my-binary-archive.recipe]
 type = "cargo-build"
-source_dir = '''upstream-project-${upstream_version}'''
+origin = "upstream"
+source_dir = '''upstream-project-${origin_version}'''
 patches = ["files/0001-example.patch"]
 makedepends = ["ca-certificates", "curl", "git", "patch", "rust", "tar"]
 cargo_build_args = ["--release", "--frozen"]
@@ -124,17 +136,12 @@ archive_files = [
   "LICENSE:LICENSE:644",
 ]
 
-[artifacts.my-binary-archive.recipe.source]
-type = "github-source-archive"
-repo = "upstream-user/upstream-project"
-tag_prefix = "v"
-
-[artifacts.my-binary-archive.storage]
+[inputs.artifacts.my-binary-archive.storage]
 type = "github-release"
 repo = "orange-guo/aur-packages"
 tag_prefix = "my-package-name-v"
 
-[artifacts.my-binary-archive.outputs.x86_64]
+[inputs.artifacts.my-binary-archive.outputs.x86_64]
 asset_name = '''${pkgname}-${pkgver}-x86_64-unknown-linux-gnu.tar.gz'''
 ```
 
@@ -211,13 +218,13 @@ Other template-specific fields:
 - `appimage-desktop`: `[build] appimage_appdir_name`, `desktop_exec_rewrite`, `desktop_name_rewrite`, `desktop_candidates`, `icon_candidates`
 - `binary-archive`: `[package] wrapper_*`, `binary_source_path`; `[files] docs` and `[files] licenses` may use glob patterns inside the extracted source archive.
 
-Current built-in upstream resolvers:
+Current built-in origin/source resolvers:
 
-- `github-release`
-- `github-release-assets`
-- `custom-hook`
+- `[origins.*] type = "github-release"`
+- `[version] from = "hook"` with `[inputs.sources.*] from = "hook"`
+- `[inputs.sources.*] from = "github-release-asset"`
 
-`github-release-assets` can consume either the latest release or a release family. Set `[upstream] release_tag_prefix` plus `[upstream.assets.<arch>] asset_name` to select the newest release whose tag starts with the prefix and contains the exact expected asset names.
+GitHub release sources can consume either the latest release or a release family. Set `[origins.<name>] release_tag_prefix` plus `[inputs.sources.<name>] asset_name` to select the newest release whose tag starts with the prefix and contains the exact expected asset names.
 
 Template-driven package validation automatically checks common installed outputs such as:
 
@@ -285,7 +292,7 @@ If upstream version stays the same but rendered package contents change, the aut
 
 ## 🧩 Special Upstreams
 
-If a package cannot use `github-release-assets`, implement `hooks.sh` with `resolve_upstream_state()`.
+If a package cannot use `github-release` origins plus `github-release-asset` sources, implement `hooks.sh` with `resolve_upstream_state()`.
 
 Rules:
 
