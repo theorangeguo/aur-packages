@@ -1,0 +1,50 @@
+spec_version = 1
+name = "boxd-cli-bin"
+template = "binary-archive"
+
+[metadata]
+desc = "External CLI for managing boxd cloud VMs"
+url = "https://boxd.sh/"
+licenses = ["custom:boxd-terms"]
+arches = ["x86_64", "aarch64"]
+depends = ["ca-certificates", "glibc"]
+makedepends = []
+optdepends = [
+  "openssh: connect to boxd VMs via ssh",
+]
+options = ["!strip"]
+provides = ["boxd", "boxd-cli"]
+conflicts = ["boxd", "boxd-cli"]
+
+[version]
+from = "hook"
+
+[inputs.sources.binary-x86_64]
+from = "hook"
+arch = "x86_64"
+rename = '''${pkgname}-${pkgver}-x86_64'''
+
+[inputs.sources.binary-aarch64]
+from = "hook"
+arch = "aarch64"
+rename = '''${pkgname}-${pkgver}-aarch64'''
+
+[package]
+binary_name = "boxd"
+binary_source_path = '''${pkgname}-${pkgver}-*'''
+install_bin_path = "/usr/bin/boxd"
+
+[files]
+local = ["files/LICENSE"]
+licenses = ["LICENSE"]
+
+[install]
+mode = "generated"
+hints = [
+  ":: This package installs only the boxd CLI binary as /usr/bin/boxd.",
+  ":: Upstream's shell installer also writes Claude Code skills under ~/.claude/skills and may edit shell startup files; this package intentionally does not modify user home directories.",
+  ":: Optional skill installation is documented at https://docs.boxd.sh/using-boxd/skills",
+]
+
+[service]
+mode = "none"

@@ -7,6 +7,7 @@ This repository contains my maintained Arch User Repository (AUR) packages. The 
 | Package | Description | Status |
 |---------|-------------|--------|
 | [antigravity-tools-bin](https://aur.archlinux.org/packages/antigravity-tools-bin) | Professional Antigravity Account Manager & Switcher | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [boxd-cli-bin](https://aur.archlinux.org/packages/boxd-cli-bin) | External CLI for managing boxd cloud VMs | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 | [claude-code-stable-bin](https://aur.archlinux.org/packages/claude-code-stable-bin) | Claude Code terminal-based AI coding assistant (stable channel) | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 | [cli-proxy-api-bin](https://aur.archlinux.org/packages/cli-proxy-api-bin) | Proxy server providing OpenAI/Gemini/Claude compatible API interfaces | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 | [cpa-usage-keeper-bin](https://aur.archlinux.org/packages/cpa-usage-keeper-bin) | Standalone CLIProxyAPI usage persistence and dashboard service | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
