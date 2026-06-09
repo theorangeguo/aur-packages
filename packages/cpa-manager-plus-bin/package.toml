@@ -10,10 +10,10 @@ arches = ["x86_64", "aarch64"]
 depends = []
 makedepends = []
 checkdepends = []
-optdepends = ["cli-proxy-api: local CLIProxyAPI backend"]
+optdepends = ["cli-proxy-api: local CLIProxyAPI backend for management and usage collection"]
 options = ["!strip"]
 provides = ["cpa-manager-plus"]
-conflicts = ["cpa-manager-plus"]
+conflicts = ["cpa-manager-plus", "cpa-manager", "cpa"]
 validpgpkeys = []
 
 [version]
@@ -52,12 +52,21 @@ licenses = ["*/LICENSE"]
 [install]
 mode = "generated"
 hints = [
-  ":: Copy the example configuration before starting the service:",
+  ":: CPA Manager Plus needs a running CLIProxyAPI/CPA instance for management and usage collection.",
+  ":: It can connect to either a local cli-proxy-api service or a remote CPA endpoint.",
+  ":: Configure the user service before starting it:",
   "   install -Dm600 /usr/share/doc/cpa-manager-plus-bin/cpa-manager-plus.env.example ~/.config/cpa-manager-plus/cpa-manager-plus.env",
   "   $EDITOR ~/.config/cpa-manager-plus/cpa-manager-plus.env",
-  ":: CLIProxyAPI should enable usage-statistics-enabled for usage collection.",
-  ":: Only one Manager Server should consume the same CLIProxyAPI usage queue.",
-  ":: The user service stores data under ~/.local/state/cpa-manager-plus and listens on HTTP_ADDR from the env file.",
+  ":: Set CPA_UPSTREAM_URL and CPA_MANAGEMENT_KEY to match your CPA Management API.",
+  ":: Set CPA_MANAGER_ADMIN_KEY for logging in to the Manager web UI; it is separate from CPA_MANAGEMENT_KEY.",
+  ":: Then start the user service:",
+  "   systemctl --user enable --now cpa-manager-plus.service",
+  ":: After editing the env file, restart the service:",
+  "   systemctl --user restart cpa-manager-plus.service",
+  ":: The user service stores data and the SQLite database under ~/.local/state/cpa-manager-plus.",
+  ":: CPA Manager Plus persists the Manager Admin Key in SQLite on first initialization.",
+  ":: Changing CPA_MANAGER_ADMIN_KEY later requires: cpa-manager-plus reset-admin-key --db-path ~/.local/state/cpa-manager-plus/usage.sqlite --admin-key-file <key-file>",
+  ":: For usage collection, enable usage-statistics-enabled in CPA and keep only one Manager Server consuming the same CPA usage queue.",
   ":: To start without an active login session, enable linger: loginctl enable-linger $USER",
 ]
 
