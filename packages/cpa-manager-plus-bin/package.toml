@@ -1,0 +1,72 @@
+spec_version = 1
+name = "cpa-manager-plus-bin"
+template = "binary-archive"
+
+[metadata]
+desc = "Management panel and analytics server for CLIProxyAPI"
+url = "https://github.com/seakee/CPA-Manager-Plus"
+licenses = ["MIT"]
+arches = ["x86_64", "aarch64"]
+depends = []
+makedepends = []
+checkdepends = []
+optdepends = ["cli-proxy-api: local CLIProxyAPI backend"]
+options = ["!strip"]
+provides = ["cpa-manager-plus"]
+conflicts = ["cpa-manager-plus"]
+validpgpkeys = []
+
+[version]
+from = "origin"
+origin = "release"
+
+[origins.release]
+type = "github-release"
+repo = "seakee/CPA-Manager-Plus"
+tag_prefix = "v"
+
+[inputs.sources.binary-x86_64]
+from = "github-release-asset"
+origin = "release"
+arch = "x86_64"
+selector = '''^cpa-manager-plus_v.*_linux_amd64\.tar\.gz$'''
+rename = '''${pkgname}-${pkgver}-x86_64.tar.gz'''
+
+[inputs.sources.binary-aarch64]
+from = "github-release-asset"
+origin = "release"
+arch = "aarch64"
+selector = '''^cpa-manager-plus_v.*_linux_(arm64|aarch64)\.tar\.gz$'''
+rename = '''${pkgname}-${pkgver}-aarch64.tar.gz'''
+
+[package]
+binary_name = "cpa-manager-plus"
+binary_source_path = "*/cpa-manager-plus"
+install_bin_path = "/usr/bin/cpa-manager-plus"
+
+[files]
+local = ["files/cpa-manager-plus.env.example"]
+docs = ["cpa-manager-plus.env.example", "*/README.md", "*/README_CN.md", "*/docs"]
+licenses = ["*/LICENSE"]
+
+[install]
+mode = "generated"
+hints = [
+  ":: Copy the example configuration before starting the service:",
+  "   install -Dm600 /usr/share/doc/cpa-manager-plus-bin/cpa-manager-plus.env.example ~/.config/cpa-manager-plus/cpa-manager-plus.env",
+  "   $EDITOR ~/.config/cpa-manager-plus/cpa-manager-plus.env",
+  ":: CLIProxyAPI should enable usage-statistics-enabled for usage collection.",
+  ":: Only one Manager Server should consume the same CLIProxyAPI usage queue.",
+  ":: The user service stores data under ~/.local/state/cpa-manager-plus and listens on HTTP_ADDR from the env file.",
+  ":: To start without an active login session, enable linger: loginctl enable-linger $USER",
+]
+
+[service]
+mode = "static"
+scope = "user"
+name = "cpa-manager-plus.service"
+file = "files/cpa-manager-plus.service"
+
+[tests]
+paths = ["/usr/share/licenses/cpa-manager-plus-bin/LICENSE"]
+executables = ["/usr/bin/cpa-manager-plus"]
