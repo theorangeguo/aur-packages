@@ -13,7 +13,7 @@ checkdepends = []
 optdepends = ["cli-proxy-api: local CLIProxyAPI backend"]
 options = ["!strip"]
 provides = ["cpa-manager-plus"]
-conflicts = ["cpa-manager-plus"]
+conflicts = ["cpa-manager-plus", "cpa-manager", "cpa"]
 validpgpkeys = []
 
 [version]
