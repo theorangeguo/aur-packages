@@ -49,6 +49,7 @@ jobs:
   # Phase 1: Discovery
   # ----------------------------------------------------------------------------
   discovery:
+    name: Resolve publish matrix
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -62,7 +63,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore update detector state
+      - name: Restore upstream detector cache
         uses: actions/cache/restore@v4
         with:
           path: .update-state
@@ -71,6 +72,7 @@ jobs:
             update-state-
 
       - id: set-matrix
+        name: Detect changed packages
         env:
           MANUAL_PACKAGE: ${{ github.event.inputs.package || '' }}
           CACHE_POLICY: ${{ github.event.inputs.cache_policy || 'normal' }}
@@ -81,7 +83,7 @@ jobs:
         run: |
           scripts/ci.sh aur-publish-discover
 
-      - name: Upload update detector state
+      - name: Upload detector state artifact
         if: steps.set-matrix.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
@@ -95,6 +97,7 @@ jobs:
   # Phase 2: Execution
   # ----------------------------------------------------------------------------
   update:
+    name: Publish ${{ matrix.package }} to AUR
     needs: discovery
     runs-on: ubuntu-latest
     if: needs.discovery.outputs.has_packages == 'true'
@@ -117,7 +120,7 @@ jobs:
       - uses: actions/checkout@v6
 
       # Unified Environment Setup & Execution
-      - name: Pipeline Execution
+      - name: Build and publish package
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           CI: true
@@ -128,25 +131,27 @@ jobs:
           scripts/ci.sh aur-publish-run "${{ matrix.package }}"
 
   save-detector-state:
+    name: Persist detector state
     needs:
       - discovery
       - update
     runs-on: ubuntu-latest
     if: always() && github.event.inputs.dry_run != 'true' && needs.discovery.result == 'success' && (needs.update.result == 'success' || needs.update.result == 'skipped')
     steps:
-      - name: Download update detector state
+      - name: Download detector state artifact
         uses: actions/download-artifact@v4
         with:
           name: update-detector-state
           path: .update-state
 
-      - name: Save update detector state
+      - name: Save detector state cache
         uses: actions/cache/save@v4
         with:
           path: .update-state
           key: update-state-${{ github.run_id }}
 
   report-detection-failures:
+    name: Report upstream detection failures
     needs:
       - discovery
       - update
@@ -154,7 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     if: always() && needs.discovery.result == 'success'
     steps:
-      - name: Report detection failures
+      - name: Report upstream detection failures
         env:
           FAILED_PACKAGES: ${{ needs.discovery.outputs.failed_packages || '[]' }}
           HAS_DETECTION_FAILURES: ${{ needs.discovery.outputs.has_detection_failures || 'false' }}

@@ -14,6 +14,7 @@ on:
 
 jobs:
   framework-boundary:
+    name: Check framework boundaries
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -23,6 +24,7 @@ jobs:
           scripts/ci.sh package-test-boundary
 
   discovery:
+    name: Resolve validation matrix
     needs: framework-boundary
     runs-on: ubuntu-latest
     outputs:
@@ -34,6 +36,7 @@ jobs:
           fetch-depth: 0
 
       - id: set-matrix
+        name: Select packages to validate
         env:
           EVENT_NAME: ${{ github.event_name }}
           MANUAL_PACKAGE: ${{ github.event.inputs.package || '' }}
@@ -45,6 +48,7 @@ jobs:
           scripts/ci.sh package-test-discover
 
   test:
+    name: Validate ${{ matrix.package }}
     needs: discovery
     runs-on: ubuntu-latest
     if: needs.discovery.outputs.has_packages == 'true'
@@ -58,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Package validation
+      - name: Build, install, and smoke test package
         env:
           CI: true
           GITHUB_TOKEN: ${{ github.token }}
