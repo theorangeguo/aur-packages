@@ -104,6 +104,7 @@ package_test_run() {
 aur_publish_discover() {
     local cache_policy=${CACHE_POLICY:-normal}
     local dispatch_policy=${DISPATCH_POLICY:-auto}
+    local failure_policy=${DETECTION_FAILURE_POLICY:-}
     local args=(--cache-policy "${cache_policy}" --dispatch-policy "${dispatch_policy}")
 
     if [ -n "${MANUAL_PACKAGE:-}" ]; then
@@ -111,6 +112,15 @@ aur_publish_discover() {
     elif [ "${dispatch_policy}" = "selected" ]; then
         fail "dispatch_policy=selected requires package"
     fi
+
+    if [ -z "${failure_policy}" ]; then
+        if [ -z "${MANUAL_PACKAGE:-}" ] && [ "${dispatch_policy}" != "selected" ]; then
+            failure_policy=continue
+        else
+            failure_policy=strict
+        fi
+    fi
+    args+=(--failure-policy "${failure_policy}")
 
     aurpkg detect-updates "${args[@]}"
 }

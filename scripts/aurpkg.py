@@ -3697,11 +3697,12 @@ def detection_fingerprint(pkg: PackageSpec) -> str:
     return sha256_text("\n".join(lines) + "\n")
 
 
-def parse_detect_updates_args(args: list[str]) -> tuple[str, str, str, str]:
+def parse_detect_updates_args(args: list[str]) -> tuple[str, str, str, str, str]:
     state_file = os.environ.get("UPDATE_STATE_FILE", ".update-state/upstream-state.tsv")
     package_filter = ""
     cache_policy = "normal"
     dispatch_policy = "auto"
+    failure_policy = "strict"
     index = 0
     while index < len(args):
         arg = args[index]
@@ -3725,8 +3726,13 @@ def parse_detect_updates_args(args: list[str]) -> tuple[str, str, str, str]:
             if index >= len(args):
                 raise CliError("Missing value for --dispatch-policy")
             dispatch_policy = args[index]
+        elif arg == "--failure-policy":
+            index += 1
+            if index >= len(args):
+                raise CliError("Missing value for --failure-policy")
+            failure_policy = args[index]
         elif arg in {"-h", "--help"}:
-            print("Usage: aurpkg.py detect-updates [--package <pkg>] [--state-file <path>] [--cache-policy <normal|refresh>] [--dispatch-policy <auto|changed-only|selected>]")
+            print("Usage: aurpkg.py detect-updates [--package <pkg>] [--state-file <path>] [--cache-policy <normal|refresh>] [--dispatch-policy <auto|changed-only|selected>] [--failure-policy <strict|continue>]")
             raise SystemExit(0)
         else:
             raise CliError(f"Unknown detect-updates parameter: {arg}")
@@ -3735,9 +3741,11 @@ def parse_detect_updates_args(args: list[str]) -> tuple[str, str, str, str]:
         raise CliError(f"Unsupported cache policy: {cache_policy}")
     if dispatch_policy not in {"auto", "changed-only", "selected"}:
         raise CliError(f"Unsupported dispatch policy: {dispatch_policy}")
+    if failure_policy not in {"strict", "continue"}:
+        raise CliError(f"Unsupported failure policy: {failure_policy}")
     if dispatch_policy == "selected" and not package_filter:
         raise CliError("dispatch-policy=selected requires --package")
-    return state_file, package_filter, cache_policy, dispatch_policy
+    return state_file, package_filter, cache_policy, dispatch_policy, failure_policy
 
 
 def effective_dispatch_policy(dispatch_policy: str, package_filter: str) -> str:
@@ -3774,7 +3782,7 @@ def write_detection_state(state_file: Path, packages: list[str], previous_lines:
 
 
 def command_detect_updates(args: list[str]) -> int:
-    state_file_arg, package_filter, cache_policy, dispatch_policy_arg = parse_detect_updates_args(args)
+    state_file_arg, package_filter, cache_policy, dispatch_policy_arg, failure_policy = parse_detect_updates_args(args)
     state_file = (REPO_ROOT / state_file_arg).resolve() if not Path(state_file_arg).is_absolute() else Path(state_file_arg)
     dispatch_policy = effective_dispatch_policy(dispatch_policy_arg, package_filter)
     previous_fingerprints, previous_lines = load_previous_state(state_file)
@@ -3783,11 +3791,19 @@ def command_detect_updates(args: list[str]) -> int:
     processed: set[str] = set()
     fingerprints: dict[str, str] = {}
     versions: dict[str, str] = {}
+    failed_packages: list[str] = []
     for package in packages:
         print(f"==> Detecting upstream state for {package}", file=sys.stderr)
-        pkg = load_package(package)
-        dispatch_upstream_resolution(pkg)
-        fingerprint = detection_fingerprint(pkg)
+        try:
+            pkg = load_package(package)
+            dispatch_upstream_resolution(pkg)
+            fingerprint = detection_fingerprint(pkg)
+        except (SpecError, CliError, GithubApiError) as exc:
+            if failure_policy != "continue":
+                raise
+            failed_packages.append(package)
+            print(f"error: failed to detect upstream state for {package}: {exc}", file=sys.stderr)
+            continue
         processed.add(package)
         fingerprints[package] = fingerprint
         versions[package] = pkg.resolved_version
@@ -3803,12 +3819,16 @@ def command_detect_updates(args: list[str]) -> int:
             changed_packages.append(package)
     write_detection_state(state_file, packages, previous_lines, processed, fingerprints, versions)
     matrix_json = json.dumps({"package": changed_packages}, separators=(",", ":"))
+    failed_packages_json = json.dumps(failed_packages, separators=(",", ":"))
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a", encoding="utf-8") as handle:
             handle.write(f"matrix={matrix_json}\n")
             handle.write(f"has_packages={'true' if changed_packages else 'false'}\n")
             handle.write(f"state_file={state_file_arg}\n")
+            handle.write(f"failed_packages={failed_packages_json}\n")
+            handle.write(f"has_detection_failures={'true' if failed_packages else 'false'}\n")
+            handle.write(f"detection_failure_count={len(failed_packages)}\n")
         log_info(f"Detected {len(changed_packages)} package(s) to dispatch: {matrix_json}")
     elif changed_packages:
         print("\n".join(changed_packages))

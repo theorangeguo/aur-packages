@@ -53,6 +53,10 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_packages: ${{ steps.set-matrix.outputs.has_packages }}
+      state_file: ${{ steps.set-matrix.outputs.state_file }}
+      failed_packages: ${{ steps.set-matrix.outputs.failed_packages }}
+      has_detection_failures: ${{ steps.set-matrix.outputs.has_detection_failures }}
+      detection_failure_count: ${{ steps.set-matrix.outputs.detection_failure_count }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -71,6 +75,7 @@ jobs:
           MANUAL_PACKAGE: ${{ github.event.inputs.package || '' }}
           CACHE_POLICY: ${{ github.event.inputs.cache_policy || 'normal' }}
           DISPATCH_POLICY: ${{ github.event.inputs.dispatch_policy || 'auto' }}
+          DETECTION_FAILURE_POLICY: ${{ vars.DETECTION_FAILURE_POLICY || '' }}
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -140,3 +145,23 @@ jobs:
         with:
           path: .update-state
           key: update-state-${{ github.run_id }}
+
+  report-detection-failures:
+    needs:
+      - discovery
+      - update
+      - save-detector-state
+    runs-on: ubuntu-latest
+    if: always() && needs.discovery.result == 'success'
+    steps:
+      - name: Report detection failures
+        env:
+          FAILED_PACKAGES: ${{ needs.discovery.outputs.failed_packages || '[]' }}
+          HAS_DETECTION_FAILURES: ${{ needs.discovery.outputs.has_detection_failures || 'false' }}
+          DETECTION_FAILURE_COUNT: ${{ needs.discovery.outputs.detection_failure_count || '0' }}
+        run: |
+          echo "Detection failure count: ${DETECTION_FAILURE_COUNT}"
+          echo "Failed packages: ${FAILED_PACKAGES}"
+          if [ "${HAS_DETECTION_FAILURES}" = "true" ]; then
+            exit 1
+          fi
