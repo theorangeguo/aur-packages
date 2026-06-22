@@ -61,9 +61,11 @@ For AUR publishing, discovery also resolves upstream package state through `scri
 
 In `continue` mode, failed packages do not update their detector fingerprint/state line. Existing state entries are preserved, so a transient failure does not erase the last known upstream state. Healthy packages still update the detector state and may be dispatched when their fingerprints change.
 
-The publish workflow exposes detector results as discovery outputs: `matrix`, `has_packages`, `state_file`, `failed_packages`, `has_detection_failures`, and `detection_failure_count`. Matrix package jobs run before the workflow reports detection failures. A final reporting job prints the failed package list and fails the workflow if any detection failures occurred, after healthy package jobs and detector-state saving have had a chance to complete.
+The publish workflow exposes detector results as discovery outputs: `matrix`, `has_packages`, `state_file`, `failed_packages`, `has_detection_failures`, and `detection_failure_count`. Matrix package jobs run before the workflow reports detection failures. A final reporting job prints the failed package list, writes a job summary, and emits a warning annotation after healthy package jobs and detector-state saving have had a chance to complete.
 
 Set `DETECTION_FAILURE_POLICY=strict` or `continue` in the workflow environment (or pass `--failure-policy` to `detect-updates`) to override the default selection.
+
+Detection failure reporting is warning-only by default so scheduled publishing can remain green when healthy packages publish successfully. Set `DETECTION_FAILURE_REPORT_LEVEL=fail` in repository variables to make the final reporting job fail the workflow when any package detection fails. Supported values are `warn` and `fail`; invalid values are treated as `warn`.
 
 ### Phase 2: Package validation execution
 For each package in `package-test.yml`:

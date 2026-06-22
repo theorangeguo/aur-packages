@@ -164,9 +164,36 @@ jobs:
           FAILED_PACKAGES: ${{ needs.discovery.outputs.failed_packages || '[]' }}
           HAS_DETECTION_FAILURES: ${{ needs.discovery.outputs.has_detection_failures || 'false' }}
           DETECTION_FAILURE_COUNT: ${{ needs.discovery.outputs.detection_failure_count || '0' }}
+          DETECTION_FAILURE_REPORT_LEVEL: ${{ vars.DETECTION_FAILURE_REPORT_LEVEL || 'warn' }}
         run: |
           echo "Detection failure count: ${DETECTION_FAILURE_COUNT}"
           echo "Failed packages: ${FAILED_PACKAGES}"
-          if [ "${HAS_DETECTION_FAILURES}" = "true" ]; then
-            exit 1
+          echo "Detection failure report level: ${DETECTION_FAILURE_REPORT_LEVEL}"
+
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "## Upstream detection failures"
+              echo
+              echo "- Count: ${DETECTION_FAILURE_COUNT}"
+              echo "- Failed packages: \`${FAILED_PACKAGES}\`"
+              echo "- Report level: \`${DETECTION_FAILURE_REPORT_LEVEL}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
           fi
+
+          if [ "${HAS_DETECTION_FAILURES}" != "true" ]; then
+            exit 0
+          fi
+
+          echo "::warning title=Upstream detection failures::${DETECTION_FAILURE_COUNT} package(s) failed upstream detection: ${FAILED_PACKAGES}"
+          case "${DETECTION_FAILURE_REPORT_LEVEL}" in
+            fail)
+              exit 1
+              ;;
+            warn)
+              exit 0
+              ;;
+            *)
+              echo "::warning title=Invalid detection failure report level::Unsupported DETECTION_FAILURE_REPORT_LEVEL '${DETECTION_FAILURE_REPORT_LEVEL}', treating as warn"
+              exit 0
+              ;;
+          esac
