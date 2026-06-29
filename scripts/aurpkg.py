@@ -1101,7 +1101,7 @@ def load_package(package_input: str) -> PackageSpec:
         spec_version=data["spec_version"],
         name=name,
         template=data["template"],
-        packaging_repo_url=data.get("packaging_repo_url") or f"https://github.com/orange-guo/aur-packages/tree/main/packages/{name}",
+        packaging_repo_url=data.get("packaging_repo_url") or f"https://github.com/theorangeguo/aur-packages/tree/main/packages/{name}",
         desc=metadata["desc"],
         url=metadata["url"],
         licenses=list_value(metadata, "licenses"),
@@ -1980,7 +1980,7 @@ class WorkspaceState:
 
 
 def render_pkgbuild_header(pkg: PackageSpec) -> str:
-    return f"# Maintainer: orange-guo\n# Packaging Repo: {pkg.packaging_repo_url}"
+    return f"# Maintainer: theorangeguo\n# Packaging Repo: {pkg.packaging_repo_url}"
 
 
 def service_install_path(pkg: PackageSpec) -> str:
@@ -2037,7 +2037,7 @@ def install_echo_line(value: str) -> str:
 def generate_install_script(pkg: PackageSpec) -> str:
     parts: list[str] = [
         "post_install() {\n",
-        "    echo \":: Packaging issues? Report at: https://github.com/orange-guo/aur-packages\"\n",
+        "    echo \":: Packaging issues? Report at: https://github.com/theorangeguo/aur-packages\"\n",
     ]
     for hint in pkg.install_hints:
         parts.append(install_echo_line(hint))
@@ -2920,14 +2920,20 @@ def publish_to_aur(pkg: PackageSpec, target_pkgver: str, target_pkgrel: int, dry
             run(["git", "-C", str(pkg.aur_repo_dir), "remote", "add", "origin", remote_url])
         env = os.environ.copy()
         env["GIT_SSH_COMMAND"] = git_ssh_command(*ssh_files)
+        aur_username = os.environ.get("AUR_USERNAME", "")
+        aur_email = os.environ.get("AUR_EMAIL", "")
+        if not aur_username:
+            raise CliError("AUR_USERNAME is required")
+        if not aur_email:
+            raise CliError("AUR_EMAIL is required")
         run([
             "git",
             "-C",
             str(pkg.aur_repo_dir),
             "-c",
-            f"user.name={os.environ.get('AUR_USERNAME', 'orange-guo')}",
+            f"user.name={aur_username}",
             "-c",
-            f"user.email={os.environ.get('AUR_EMAIL', 'aur@example.invalid')}",
+            f"user.email={aur_email}",
             "commit",
             "-m",
             commit_msg,

@@ -301,7 +301,7 @@ origin = "zellij"
 
 [inputs.artifacts.zellij-binary.storage]
 type = "github-release"
-repo = "orange-guo/aur-packages"
+repo = "theorangeguo/aur-packages"
 tag = '''${pkgname}-v${artifact.version}'''
 
 [inputs.sources.binary]
