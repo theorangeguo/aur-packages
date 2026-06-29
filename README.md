@@ -6,16 +6,16 @@ This repository contains my maintained Arch User Repository (AUR) packages. The 
 
 | Package | Description | Status |
 |---------|-------------|--------|
-| [antigravity-tools-bin](https://aur.archlinux.org/packages/antigravity-tools-bin) | Professional Antigravity Account Manager & Switcher | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
-| [boxd-cli-bin](https://aur.archlinux.org/packages/boxd-cli-bin) | External CLI for managing boxd cloud VMs | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
-| [claude-code-stable-bin](https://aur.archlinux.org/packages/claude-code-stable-bin) | Claude Code terminal-based AI coding assistant (stable channel) | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
-| [cli-proxy-api-bin](https://aur.archlinux.org/packages/cli-proxy-api-bin) | Proxy server providing OpenAI/Gemini/Claude compatible API interfaces | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
-| [cpa-manager-plus-bin](https://aur.archlinux.org/packages/cpa-manager-plus-bin) | Management panel and analytics server for CLIProxyAPI | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
-| [cpa-usage-keeper-bin](https://aur.archlinux.org/packages/cpa-usage-keeper-bin) | Standalone CLIProxyAPI usage persistence and dashboard service | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
-| [fingerprint-chromium-bin](https://aur.archlinux.org/packages/fingerprint-chromium-bin) | Fingerprint Chromium (Ungoogled Chromium with fingerprinting protection) | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
-| [vibe-kanban-bin](https://aur.archlinux.org/packages/vibe-kanban-bin) | AI-powered Kanban board | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
-| [wlroots0.20-vmwgfx](https://aur.archlinux.org/packages/wlroots0.20-vmwgfx) | wlroots 0.20 with a vmwgfx compatibility patch for VMware environments | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
-| [zellij-no-mouse-resize-bin](https://aur.archlinux.org/packages/zellij-no-mouse-resize-bin) | Zellij with advanced_mouse_actions also gating pane mouse resize | ![Build Status](https://github.com/orange-guo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [antigravity-tools-bin](https://aur.archlinux.org/packages/antigravity-tools-bin) | Professional Antigravity Account Manager & Switcher | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [boxd-cli-bin](https://aur.archlinux.org/packages/boxd-cli-bin) | External CLI for managing boxd cloud VMs | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [claude-code-stable-bin](https://aur.archlinux.org/packages/claude-code-stable-bin) | Claude Code terminal-based AI coding assistant (stable channel) | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [cli-proxy-api-bin](https://aur.archlinux.org/packages/cli-proxy-api-bin) | Proxy server providing OpenAI/Gemini/Claude compatible API interfaces | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [cpa-manager-plus-bin](https://aur.archlinux.org/packages/cpa-manager-plus-bin) | Management panel and analytics server for CLIProxyAPI | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [cpa-usage-keeper-bin](https://aur.archlinux.org/packages/cpa-usage-keeper-bin) | Standalone CLIProxyAPI usage persistence and dashboard service | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [fingerprint-chromium-bin](https://aur.archlinux.org/packages/fingerprint-chromium-bin) | Fingerprint Chromium (Ungoogled Chromium with fingerprinting protection) | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [vibe-kanban-bin](https://aur.archlinux.org/packages/vibe-kanban-bin) | AI-powered Kanban board | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [wlroots0.20-vmwgfx](https://aur.archlinux.org/packages/wlroots0.20-vmwgfx) | wlroots 0.20 with a vmwgfx compatibility patch for VMware environments | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
+| [zellij-no-mouse-resize-bin](https://aur.archlinux.org/packages/zellij-no-mouse-resize-bin) | Zellij with advanced_mouse_actions also gating pane mouse resize | ![Build Status](https://github.com/theorangeguo/aur-packages/actions/workflows/aur-publish.yml/badge.svg) |
 
 ## 🛠 Automation Workflow
 
@@ -92,4 +92,4 @@ Each package directory now lives under `packages/<pkgname>/` and keeps only:
 For detailed setup instructions, including required publishing secrets (`AUR_SSH_PRIVATE_KEY`, `AUR_USERNAME`, and `AUR_EMAIL`) and global configuration, please refer to [INTEGRATION.md](docs/INTEGRATION.md).
 
 ---
-*Maintained by [orange-guo](https://github.com/orange-guo)*
+*Maintained by [theorangeguo](https://github.com/theorangeguo)*

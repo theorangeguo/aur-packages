@@ -73,7 +73,7 @@ archive_files = [
 
 [inputs.artifacts.zellij-binary.storage]
 type = "github-release"
-repo = "orange-guo/aur-packages"
+repo = "theorangeguo/aur-packages"
 tag_prefix = "zellij-no-mouse-resize-bin-v"
 
 [inputs.artifacts.zellij-binary.outputs.x86_64]

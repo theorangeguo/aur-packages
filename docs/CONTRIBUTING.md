@@ -138,7 +138,7 @@ archive_files = [
 
 [inputs.artifacts.my-binary-archive.storage]
 type = "github-release"
-repo = "orange-guo/aur-packages"
+repo = "theorangeguo/aur-packages"
 tag_prefix = "my-package-name-v"
 
 [inputs.artifacts.my-binary-archive.outputs.x86_64]
