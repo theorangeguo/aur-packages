@@ -1297,6 +1297,13 @@ def validate_normalized_package(pkg: PackageSpec) -> None:
         validate_package_name_value(pkg.binary_name, "BINARY_NAME", config_path)
         validate_relative_source_pattern("BINARY_SOURCE_PATH", pkg.binary_source_path or pkg.binary_name, config_path)
         validate_absolute_install_path("INSTALL_BIN_PATH", pkg.install_bin_path, config_path)
+    if pkg.template == "deb-repack":
+        if pkg.install_bin_path:
+            validate_absolute_install_path("INSTALL_BIN_PATH", pkg.install_bin_path, config_path)
+        if pkg.binary_source_path:
+            validate_absolute_install_path("BINARY_SOURCE_PATH", pkg.binary_source_path, config_path)
+        if bool(pkg.install_bin_path) != bool(pkg.binary_source_path):
+            raise CliError(f"INSTALL_BIN_PATH and BINARY_SOURCE_PATH must be set together in {config_path}")
     if pkg.wrapper_source_path or pkg.wrapper_install_path:
         if not pkg.wrapper_source_path or not pkg.wrapper_install_path:
             raise CliError("WRAPPER_SOURCE_PATH and WRAPPER_INSTALL_PATH must be set together")
@@ -2351,11 +2358,17 @@ package() {{
 def render_deb_repack_pkgbuild(pkg: PackageSpec, workspace: Path, state: WorkspaceState, target_pkgver: str, target_pkgrel: int) -> None:
     register_workspace_sync_file(state, "PKGBUILD")
     service_path = service_install_path(pkg) if pkg.service_mode != "none" else ""
-    source_name_x86_64 = resolved_source_name_for_arch(pkg, "x86_64", target_pkgver)
+    arch_cases: list[str] = []
+    for arch in pkg.arches:
+        source_name = resolved_source_name_for_arch(pkg, arch, target_pkgver)
+        arch_cases.append(f"        {arch}) _deb_source_file={q(source_name)} ;;")
+    arch_case_block = "\n".join(arch_cases)
+
     content = f"""{render_pkgbuild_metadata(pkg, state, target_pkgver, target_pkgrel)}
 
-_deb_source_file={q(source_name_x86_64)}
 _deb_relocate_usr_local={q(pkg.deb_relocate_usr_local)}
+_install_bin_path={q(pkg.install_bin_path)}
+_binary_source_path={q(pkg.binary_source_path)}
 _service_file={q(state.service_file_name)}
 _service_install_path={q(service_path)}
 {render_array_assignment("_doc_files", pkg.doc_files)}
@@ -2363,6 +2376,15 @@ _service_install_path={q(service_path)}
 {render_persisted_state_assignments(pkg)}
 
 prepare() {{
+    local _deb_source_file
+    case "$CARCH" in
+{arch_case_block}
+        *)
+            echo "Unsupported architecture: $CARCH" >&2
+            return 1
+            ;;
+    esac
+
     rm -rf "${{srcdir}}/_deb_extract" "${{srcdir}}/_deb_root"
     mkdir -p "${{srcdir}}/_deb_extract" "${{srcdir}}/_deb_root"
 
@@ -2385,6 +2407,11 @@ package() {{
         install -d "${{pkgdir}}/usr"
         cp -a "${{pkgdir}}/usr/local/." "${{pkgdir}}/usr/"
         rm -rf "${{pkgdir}}/usr/local"
+    fi
+
+    if [ -n "${{_install_bin_path}}" ] && [ -n "${{_binary_source_path}}" ]; then
+        install -d "$(dirname "${{pkgdir}}${{_install_bin_path}}")"
+        ln -sf "${{_binary_source_path}}" "${{pkgdir}}${{_install_bin_path}}"
     fi
 
     local doc_file
@@ -3707,6 +3734,11 @@ def detect_container_runtime() -> str:
     raise CliError("docker or podman is required for local package tests")
 
 
+def container_network_args() -> list[str]:
+    network = os.environ.get("DOCKER_NETWORK") or os.environ.get("CONTAINER_NETWORK")
+    return ["--network", network] if network else []
+
+
 def container_token_environment_args() -> list[str]:
     return ["-e", "GITHUB_TOKEN", "-e", "GH_TOKEN"]
 
@@ -3732,6 +3764,7 @@ def command_run_test(args: list[str]) -> int:
         runtime,
         "run",
         "--rm",
+        *container_network_args(),
         "-e",
         "CI=true",
         *container_token_environment_args(),

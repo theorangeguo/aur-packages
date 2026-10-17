@@ -1,0 +1,72 @@
+spec_version = 1
+name = "codearts-agent-bin"
+template = "deb-repack"
+
+[metadata]
+desc = "AI-powered coding assistant and IDE by Huawei Cloud"
+url = "https://codearts.huaweicloud.com/"
+licenses = ["custom:huaweicloud"]
+arches = ["x86_64", "aarch64"]
+depends = [
+  "alsa-lib",
+  "at-spi2-core",
+  "cairo",
+  "curl",
+  "glibc",
+  "gtk3",
+  "libnotify",
+  "libsecret",
+  "libxkbfile",
+  "libxss",
+  "nss",
+  "shared-mime-info",
+  "xdg-utils",
+]
+makedepends = []
+optdepends = [
+  "libvulkan-driver: Vulkan support",
+  "bash-completion: Bash completion support",
+  "zsh-completions: Zsh completion support",
+]
+options = ["!strip"]
+provides = ["codearts-agent"]
+conflicts = ["codearts-agent"]
+
+[version]
+from = "hook"
+
+[inputs.sources.deb-x86_64]
+from = "hook"
+arch = "x86_64"
+rename = '''${pkgname}-${pkgver}-x86_64.deb'''
+
+[inputs.sources.deb-aarch64]
+from = "hook"
+arch = "aarch64"
+rename = '''${pkgname}-${pkgver}-aarch64.deb'''
+
+[package]
+install_bin_path = "/usr/bin/codearts-agent"
+binary_source_path = "/usr/share/codearts-agent/bin/codearts-agent"
+
+[files]
+local = ["files/LICENSE"]
+licenses = ["LICENSE"]
+
+[install]
+mode = "none"
+
+[service]
+mode = "none"
+
+[tests]
+paths = [
+  "/usr/share/applications/codearts-agent.desktop",
+  "/usr/share/pixmaps/com.huawei.codearts.agent.png",
+]
+executables = [
+  "/usr/bin/codearts-agent",
+]
+commands = [
+  "/usr/bin/codearts-agent --version --user-data-dir=/tmp",
+]
