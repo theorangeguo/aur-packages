@@ -128,6 +128,10 @@ aur_publish_discover() {
         sudo -n python3 scripts/aurpkg.py setup-user
     fi
 
+    if [ -n "${GITHUB_WORKSPACE:-}" ]; then
+        chmod a+rx /home/runner /home/runner/work 2>/dev/null || true
+    fi
+
     AURPKG_PACKAGE_CONTROLLED_USER=builder aurpkg detect-updates "${args[@]}"
 }
 
