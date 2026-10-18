@@ -4049,6 +4049,15 @@ def command_setup_user(args: list[str]) -> int:
     else:
         log_cli("User 'builder' already exists.")
     remove_builder_sudoers()
+    current = REPO_ROOT.resolve()
+    while current != current.parent:
+        try:
+            st = current.stat()
+            if not (st.st_mode & 0o001):
+                current.chmod(st.st_mode | 0o001)
+        except OSError:
+            pass
+        current = current.parent
     return 0
 
 
