@@ -175,5 +175,74 @@ class GithubAssetResolutionTests(unittest.TestCase):
             })
 
 
+class DebControlResolutionTests(unittest.TestCase):
+    def build_ar(self, members: list[tuple[str, bytes]]) -> bytes:
+        payload = b"!<arch>\n"
+        for name, body in members:
+            header = f"{name:<16}{0:<12}{0:<6}{0:<6}{0o100644:<8o}{len(body):<10}`\n".encode("ascii")
+            payload += header + body
+            if len(body) % 2:
+                payload += b"\n"
+        return payload
+
+    def build_control_archive(self, version: str) -> bytes:
+        import io as _io
+        import tarfile as _tarfile
+
+        buffer = _io.BytesIO()
+        with _tarfile.open(fileobj=buffer, mode="w:xz") as tar:
+            data = f"Package: demo-app\nVersion: {version}\n".encode("utf-8")
+            info = _tarfile.TarInfo("./control")
+            info.size = len(data)
+            tar.addfile(info, _io.BytesIO(data))
+        return buffer.getvalue()
+
+    def test_parse_ar_member_extracts_control_archive(self):
+        control_archive = self.build_control_archive("1.2.3")
+        payload = self.build_ar([("debian-binary", b"2.0\n"), ("control.tar.xz", control_archive), ("data.tar.xz", b"junk")])
+        name, member = aurpkg.parse_ar_member(payload, "control.tar")
+        self.assertEqual(name, "control.tar.xz")
+        self.assertEqual(member, control_archive)
+
+    def test_parse_ar_member_requires_ar_magic(self):
+        with self.assertRaisesRegex(aurpkg.CliError, "ar archive"):
+            aurpkg.parse_ar_member(b"not-an-ar-file", "control.tar")
+
+    def test_parse_ar_member_reports_missing_member(self):
+        payload = self.build_ar([("debian-binary", b"2.0\n"), ("data.tar.xz", b"junk")])
+        with self.assertRaisesRegex(aurpkg.CliError, "no control.tar"):
+            aurpkg.parse_ar_member(payload, "control.tar")
+
+    def test_control_field_reads_version(self):
+        text = "Package: demo-app\nVersion: 1.2.3\nArchitecture: amd64\n"
+        self.assertEqual(aurpkg.control_field(text, "Version"), "1.2.3")
+        self.assertEqual(aurpkg.control_field(text, "Missing"), "")
+
+    def test_normalize_deb_version_strips_epoch(self):
+        self.assertEqual(aurpkg.normalize_deb_version("1:1.2.3"), "1.2.3")
+        self.assertEqual(aurpkg.normalize_deb_version("1.2.3"), "1.2.3")
+
+    def test_normalize_deb_version_rejects_debian_revision_and_empty(self):
+        with self.assertRaisesRegex(aurpkg.CliError, "Unsupported Debian version"):
+            aurpkg.normalize_deb_version("1.2.3-1")
+        with self.assertRaisesRegex(aurpkg.CliError, "empty"):
+            aurpkg.normalize_deb_version("1:")
+
+    def test_resolve_deb_control_version_sets_static_source_urls(self):
+        package = SimpleNamespace(
+            name="demo-bin",
+            upstream_url="https://example.test/demo-latest.deb",
+            arches=["x86_64"],
+            static_source_urls={"x86_64": "https://example.test/demo-latest.deb"},
+            resolved_version="",
+            resolved_source_urls={},
+        )
+        with patch.object(aurpkg, "deb_control_text", return_value="Package: demo\nVersion: 2:9.9.9\n"), \
+             patch.object(aurpkg, "log_info"):
+            aurpkg.resolve_deb_control_version(package)
+        self.assertEqual(package.resolved_version, "9.9.9")
+        self.assertEqual(package.resolved_source_urls, {"x86_64": "https://example.test/demo-latest.deb"})
+
+
 if __name__ == "__main__":
     unittest.main()

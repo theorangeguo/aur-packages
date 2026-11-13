@@ -12,6 +12,7 @@ import base64
 import dataclasses
 import functools
 import hashlib
+import io
 import json
 import os
 import re
@@ -19,6 +20,7 @@ import shutil
 import shlex
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import tomllib
@@ -96,6 +98,7 @@ TABLE_KEYS = {
         "release_tag_prefix",
         "allow_prerelease",
         "assets",
+        "url",
     },
     "package": {
         "binary_name",
@@ -128,7 +131,7 @@ TABLE_KEYS = {
     "tests": {"paths", "executables", "commands"},
 }
 
-ASSET_KEYS = {"selector", "asset_name", "source_rename"}
+ASSET_KEYS = {"selector", "asset_name", "source_rename", "url"}
 ARTIFACT_KEYS = {
     "type",
     "rev",
@@ -156,7 +159,8 @@ ARTIFACT_OUTPUT_KEYS = {"asset_name"}
 SOURCE_KEYS = {"artifact", "arch", "rename"}
 INPUT_SOURCE_KEYS = {"from", "origin", "artifact", "arch", "selector", "asset_name", "rename", "url"}
 VERSION_KEYS = {"from", "origin", "artifact", "value"}
-ORIGIN_KEYS = {"type", "repo", "repo_user", "repo_name", "tag_prefix", "release_tag_prefix", "allow_prerelease"}
+ORIGIN_KEYS = {"type", "repo", "repo_user", "repo_name", "tag_prefix", "release_tag_prefix", "allow_prerelease", "url"}
+DEB_CONTROL_RANGE_BYTES = 131072
 ARTIFACT_MODES = {"readonly", "local", "publish", "force"}
 
 
@@ -405,6 +409,8 @@ def normalize_input_domain_schema(data: dict[str, Any], path: str) -> dict[str, 
             fail(f"{path} [origins.{origin_name}] must be a TOML table")
         reject_unknown_keys(origin, ORIGIN_KEYS, f"{path} [origins.{origin_name}]")
         require_string(origin, "type", f"{path} [origins.{origin_name}]")
+        if origin.get("type") == "deb-control" and not origin.get("url"):
+            fail(f"{path} [origins.{origin_name}] requires url for deb-control origins")
         optional_repo(origin, f"{path} [origins.{origin_name}]")
         optional_string(origin, "tag_prefix", f"{path} [origins.{origin_name}]")
         optional_string(origin, "release_tag_prefix", f"{path} [origins.{origin_name}]")
@@ -509,6 +515,15 @@ def normalize_input_domain_schema(data: dict[str, Any], path: str) -> dict[str, 
                 "arch": require_string(source, "arch", f"{path} [inputs.sources.{source_name}]"),
                 "rename": rename,
             }
+        elif source_from == "origin-url":
+            source_origin = require_string(source, "origin", f"{path} [inputs.sources.{source_name}]")
+            if not arch:
+                fail(f"{path} [inputs.sources.{source_name}] arch is required for origin-url")
+            origin_entry = origin_table(source_origin, f"{path} [inputs.sources.{source_name}]")
+            source_url = str(source.get("url", "") or origin_entry.get("url", "") or "")
+            if not source_url:
+                fail(f"{path} [inputs.sources.{source_name}] requires url, either directly or from origin {source_origin}")
+            legacy_upstream["assets"][arch] = {"url": source_url, "source_rename": rename}
         else:
             fail(f"Unsupported source from in {path} [inputs.sources.{source_name}]: {source_from}")
 
@@ -787,6 +802,17 @@ def validate_cross_fields(data: dict[str, Any], path: str) -> None:
                 fail(f"[upstream.assets.{arch}] requires selector or asset_name in {path}")
             if not asset.get("source_rename"):
                 fail(f"[upstream.assets.{arch}] requires source_rename in {path}")
+    if upstream["type"] == "deb-control":
+        if not upstream.get("url"):
+            fail(f"[upstream] requires url for deb-control in {path}")
+        for arch in arches:
+            asset = upstream_assets.get(arch)
+            if asset is None:
+                fail(f"[upstream.assets.{arch}] is required for deb-control in {path}")
+            if not asset.get("url"):
+                fail(f"[upstream.assets.{arch}] requires url in {path}")
+            if not asset.get("source_rename"):
+                fail(f"[upstream.assets.{arch}] requires source_rename in {path}")
 
     artifacts = data.get("artifacts", {})
     package = data.get("package", {})
@@ -921,9 +947,11 @@ class PackageSpec:
     upstream_release_tag_prefix: str
     upstream_allow_prerelease: bool
     upstream_fixed_version: str
+    upstream_url: str
     asset_selectors: dict[str, str]
     upstream_asset_names: dict[str, str]
     source_renames: dict[str, str]
+    static_source_urls: dict[str, str]
     binary_name: str
     binary_source_path: str
     install_bin_path: str
@@ -1178,9 +1206,11 @@ def load_package(package_input: str) -> PackageSpec:
         upstream_release_tag_prefix=str_value(upstream, "release_tag_prefix"),
         upstream_allow_prerelease=bool_value(upstream, "allow_prerelease", False),
         upstream_fixed_version=str_value(upstream, "value"),
+        upstream_url=str_value(upstream, "url"),
         asset_selectors={arch: asset.get("selector", "") for arch, asset in upstream.get("assets", {}).items()},
         upstream_asset_names={arch: asset.get("asset_name", "") for arch, asset in upstream.get("assets", {}).items()},
         source_renames={arch: asset.get("source_rename", "") for arch, asset in upstream.get("assets", {}).items()},
+        static_source_urls={arch: asset.get("url", "") for arch, asset in upstream.get("assets", {}).items()},
         binary_name=str_value(package, "binary_name"),
         binary_source_path=str_value(package, "binary_source_path"),
         install_bin_path=str_value(package, "install_bin_path"),
@@ -1233,8 +1263,16 @@ def validate_normalized_package(pkg: PackageSpec) -> None:
         raise CliError(f"Package directory must match PKGNAME: {pkg.package_dir.name} != {pkg.name}")
     if pkg.template not in {"binary-archive", "deb-repack", "appimage-desktop", "source-meson"}:
         raise CliError(f"Unsupported PACKAGE_TEMPLATE in {config_path}: {pkg.template}")
-    if pkg.upstream_type not in {"github-release", "github-release-assets", "custom-hook", "fixed"}:
+    if pkg.upstream_type not in {"github-release", "github-release-assets", "custom-hook", "fixed", "deb-control"}:
         raise CliError(f"Unsupported UPSTREAM_TYPE in {config_path}: {pkg.upstream_type}")
+    if pkg.upstream_type == "deb-control":
+        if not pkg.upstream_url:
+            raise CliError(f"UPSTREAM_URL is required for deb-control in {config_path}")
+        for arch in pkg.arches:
+            if not pkg.static_source_urls.get(arch):
+                raise CliError(f"Source url is required for architecture {arch} in {config_path}")
+            if not pkg.source_renames.get(arch):
+                raise CliError(f"Source rename is required for architecture {arch} in {config_path}")
     if not pkg.arches:
         raise CliError(f"ARCHES must not be empty in {config_path}")
     if not pkg.licenses:
@@ -1397,11 +1435,13 @@ def emit_shell_for_package(pkg: PackageSpec, raw_defaults: bool = False) -> str:
     add_scalar("UPSTREAM_RELEASE_TAG_PREFIX", pkg.upstream_release_tag_prefix)
     add_scalar("UPSTREAM_ALLOW_PRERELEASE", pkg.upstream_allow_prerelease)
     add_scalar("UPSTREAM_FIXED_VERSION", pkg.upstream_fixed_version)
+    add_scalar("UPSTREAM_URL", pkg.upstream_url)
     for arch in sorted(set(pkg.asset_selectors) | set(pkg.upstream_asset_names) | set(pkg.source_renames)):
         suffix = shell_var_suffix(arch)
         add_scalar(f"ASSET_SELECTOR_{suffix}", pkg.asset_selectors.get(arch, ""))
         add_scalar(f"UPSTREAM_ASSET_NAME_{suffix}", pkg.upstream_asset_names.get(arch, ""))
         add_scalar(f"SOURCE_RENAME_{suffix}", pkg.source_renames.get(arch, ""))
+        add_scalar(f"STATIC_SOURCE_URL_{suffix}", pkg.static_source_urls.get(arch, ""))
     add_scalar("BINARY_NAME", pkg.binary_name)
     add_scalar("BINARY_SOURCE_PATH", pkg.binary_source_path)
     add_scalar("INSTALL_BIN_PATH", pkg.install_bin_path)
@@ -1915,10 +1955,109 @@ def resolve_github_release_version(pkg: PackageSpec) -> None:
         raise CliError(f"Could not normalize GitHub release tag for {pkg.name}: {latest_tag}")
 
 
+def parse_ar_member(data: bytes, member_prefix: str) -> tuple[str, bytes]:
+    """Return the name and payload of the first ar member matching a prefix."""
+    if not data.startswith(b"!<arch>\n"):
+        raise CliError("Debian package control fetch did not return an ar archive")
+    offset = 8
+    while offset + 60 <= len(data):
+        header = data[offset : offset + 60]
+        name = header[0:16].decode("utf-8", errors="replace").strip().rstrip("/")
+        size_text = header[48:58].decode("utf-8", errors="replace").strip()
+        try:
+            size = int(size_text)
+        except ValueError as exc:
+            raise CliError(f"Malformed ar member header inside Debian package: {exc}") from exc
+        start = offset + 60
+        end = start + size
+        if name.startswith(member_prefix):
+            if end > len(data):
+                raise CliError(f"Debian package member {name} is larger than the fetched range")
+            return name, data[start:end]
+        offset = end + (size % 2)
+    raise CliError(f"Debian package has no {member_prefix}* member")
+
+
+def tar_member_text(archive_name: str, payload: bytes, member: str) -> str:
+    """Read one text member out of a control archive payload."""
+    if archive_name.endswith(".zst"):
+        require_cmd("bsdtar")
+        with tempfile.TemporaryDirectory() as tmp:
+            archive_path = Path(tmp) / "control.tar.zst"
+            archive_path.write_bytes(payload)
+            result = run(["bsdtar", "-xOf", str(archive_path), f"./{member}"], capture=True)
+            return result.stdout
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:*") as tar:
+        handle = None
+        for candidate in (f"./{member}", member):
+            try:
+                handle = tar.extractfile(candidate)
+            except KeyError:
+                handle = None
+            if handle is not None:
+                break
+        if handle is None:
+            raise CliError(f"Debian control archive has no {member} entry")
+        return handle.read().decode("utf-8", errors="replace")
+
+
+def deb_control_text(url: str) -> str:
+    """Fetch only the leading Debian package members and read its control file."""
+    require_cmd("curl")
+    payload = curl_bytes(
+        [
+            "-fsSL",
+            "--retry",
+            "5",
+            "--retry-all-errors",
+            "--retry-delay",
+            "2",
+            "--connect-timeout",
+            "20",
+            "--max-filesize",
+            str(DEB_CONTROL_RANGE_BYTES * 8),
+            "-r",
+            f"0-{DEB_CONTROL_RANGE_BYTES - 1}",
+            "-H",
+            "User-Agent: aur-packages-ci",
+            url,
+        ]
+    )
+    archive_name, member_payload = parse_ar_member(payload, "control.tar")
+    return tar_member_text(archive_name, member_payload, "control")
+
+
+def control_field(text: str, field: str) -> str:
+    prefix = f"{field}:"
+    for line in text.splitlines():
+        if line.startswith(prefix):
+            return line[len(prefix) :].strip()
+    return ""
+
+
+def normalize_deb_version(raw_version: str) -> str:
+    version = raw_version.split(":", 1)[-1].strip()
+    if not version:
+        raise CliError(f"Debian control Version field is empty: {raw_version!r}")
+    if ":" in version or "-" in version:
+        raise CliError(f"Unsupported Debian version for Arch pkgver: {raw_version}")
+    return version
+
+
+def resolve_deb_control_version(pkg: PackageSpec) -> None:
+    control = retry(f"Resolve deb control metadata for {pkg.name}", 3, lambda: deb_control_text(pkg.upstream_url))
+    raw_version = control_field(control, "Version")
+    if not raw_version:
+        raise CliError(f"Could not read Version from deb control metadata: {pkg.upstream_url}")
+    pkg.resolved_version = normalize_deb_version(raw_version)
+    pkg.resolved_source_urls = {arch: pkg.static_source_urls[arch] for arch in pkg.arches}
+    log_info(f"Resolved deb control version: {pkg.resolved_version}")
+
+
 def hook_spec_vars(pkg: PackageSpec) -> list[str]:
     names = [
         "PACKAGE_SPEC_VERSION", "PKGNAME", "PACKAGE_TEMPLATE", "UPSTREAM_TYPE", "PKGDESC", "URL", "LICENSES", "ARCHES", "DEPENDS", "MAKEDEPENDS", "CHECKDEPENDS", "OPTDEPENDS", "OPTIONS", "PROVIDES", "CONFLICTS", "VALIDPGPKEYS", "PACKAGING_REPO_URL",
-        "UPSTREAM_REPO_USER", "UPSTREAM_REPO_NAME", "UPSTREAM_TAG_PREFIX", "UPSTREAM_RELEASE_TAG_PREFIX", "UPSTREAM_ALLOW_PRERELEASE", "UPSTREAM_FIXED_VERSION",
+        "UPSTREAM_REPO_USER", "UPSTREAM_REPO_NAME", "UPSTREAM_TAG_PREFIX", "UPSTREAM_RELEASE_TAG_PREFIX", "UPSTREAM_ALLOW_PRERELEASE", "UPSTREAM_FIXED_VERSION", "UPSTREAM_URL",
         "SOURCE_RENAME", "BINARY_NAME", "BINARY_SOURCE_PATH", "INSTALL_BIN_PATH", "WRAPPER_SOURCE_PATH", "WRAPPER_INSTALL_PATH", "WRAPPER_MODE", "VERSION_ARTIFACT",
         "LOCAL_FILES", "PATCH_FILES", "DOC_FILES", "LICENSE_FILES", "INSTALL_MODE", "INSTALL_HINTS", "INSTALL_FILE", "SERVICE_MODE", "SERVICE_SCOPE", "SERVICE_NAME", "SERVICE_FILE", "SERVICE_EXEC", "SERVICE_RESTART", "SERVICE_RESTART_SEC",
         "DEB_RELOCATE_USR_LOCAL", "APPIMAGE_APPDIR_NAME", "APPIMAGE_INSTALL_DIR", "DESKTOP_CANDIDATES", "ICON_CANDIDATES", "DESKTOP_EXEC_REWRITE", "DESKTOP_NAME_REWRITE",
@@ -1927,7 +2066,7 @@ def hook_spec_vars(pkg: PackageSpec) -> list[str]:
     ]
     for arch in sorted(set(pkg.asset_selectors) | set(pkg.upstream_asset_names) | set(pkg.source_renames)):
         suffix = shell_var_suffix(arch)
-        names.extend([f"ASSET_SELECTOR_{suffix}", f"UPSTREAM_ASSET_NAME_{suffix}", f"SOURCE_RENAME_{suffix}"])
+        names.extend([f"ASSET_SELECTOR_{suffix}", f"UPSTREAM_ASSET_NAME_{suffix}", f"SOURCE_RENAME_{suffix}", f"STATIC_SOURCE_URL_{suffix}"])
     return sorted(set(names))
 
 
@@ -2029,6 +2168,8 @@ def dispatch_upstream_resolution(pkg: PackageSpec) -> None:
         resolve_github_release_assets(pkg)
     elif pkg.upstream_type == "custom-hook":
         run_custom_hook_resolution(pkg)
+    elif pkg.upstream_type == "deb-control":
+        resolve_deb_control_version(pkg)
     elif pkg.upstream_type == "fixed":
         pkg.resolved_version = pkg.upstream_fixed_version
     else:

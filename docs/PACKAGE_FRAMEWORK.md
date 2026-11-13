@@ -118,10 +118,10 @@ Shared scripts may branch on framework concepts. These are acceptable because pa
 |---|---|---|
 | Package renderer | top-level `template` | `binary-archive`, `deb-repack`, `appimage-desktop`, `source-meson` |
 | Version resolver | `[version] from` | `origin`, `artifact`, `hook`, `fixed` |
-| Origin resolver | `[origins.<name>] type` | `github-release` |
+| Origin resolver | `[origins.<name>] type` | `github-release`, `deb-control` |
 | Artifact recipe | `[inputs.artifacts.<name>.recipe] type` | `cargo-build` |
 | Artifact storage | `[inputs.artifacts.<name>.storage] type` | `github-release` |
-| Source entry | `[inputs.sources.<name>] from` | `github-release-asset`, `artifact`, `hook` |
+| Source entry | `[inputs.sources.<name>] from` | `github-release-asset`, `origin-url`, `artifact`, `hook` |
 | Install script | `[install] mode` | `none`, `generated`, `static` |
 | Service unit | `[service] mode` | `none`, `generated`, `static` |
 | Service scope | `[service] scope` | `user`, `system` |
@@ -276,6 +276,34 @@ arch = "x86_64"
 selector = '''^Antigravity\.Tools_.*_amd64\.deb$'''
 rename = '''${pkgname}-${pkgver}-x86_64.deb'''
 ```
+
+Example shape for a vendor Debian package with a version-less download URL:
+
+```toml
+[version]
+from = "origin"
+origin = "linux"
+
+[origins.linux]
+type = "deb-control"
+url = "https://vendor.example/release-info/linux-artifacts/App-linux-amd64-latest.deb"
+
+[inputs.sources.deb-x86_64]
+from = "origin-url"
+origin = "linux"
+arch = "x86_64"
+rename = '''${pkgname}-${pkgver}-x86_64.deb'''
+```
+
+`deb-control` origins resolve `pkgver` by reading the `Version:` field from the Debian
+control archive. Only the leading bytes of the package are fetched through an HTTP range
+request, so version detection does not download the whole artifact. Debian epochs are
+stripped, and a remaining Debian revision (`1.2.3-1`) is rejected because it cannot be
+mapped onto an Arch `pkgver`.
+
+`origin-url` source entries reuse the URL declared by their origin, so a version-less
+download URL is declared once. A source entry may override it with its own `url` when
+architectures are published at different paths.
 
 Example shape for a repo-built artifact consumed as a source:
 
