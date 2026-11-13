@@ -1,0 +1,88 @@
+spec_version = 1
+name = "dumate-bin"
+template = "deb-repack"
+
+[metadata]
+desc = "Baidu DuMate desktop AI client"
+url = "https://www.dumate.cn/"
+licenses = ["custom:baidu-dumate"]
+arches = ["x86_64"]
+depends = [
+  "alsa-lib",
+  "at-spi2-core",
+  "cairo",
+  "dbus",
+  "expat",
+  "gcc-libs",
+  "glib2",
+  "glibc",
+  "gtk3",
+  "libcups",
+  "libnotify",
+  "libsecret",
+  "libx11",
+  "libxcb",
+  "libxcomposite",
+  "libxdamage",
+  "libxext",
+  "libxfixes",
+  "libxkbcommon",
+  "libxrandr",
+  "libxss",
+  "libxtst",
+  "mesa",
+  "nspr",
+  "nss",
+  "pango",
+  "systemd-libs",
+  "util-linux-libs",
+  "xdg-utils",
+]
+makedepends = []
+optdepends = [
+  "libappindicator-gtk3: system tray indicator support",
+]
+options = ["!strip"]
+provides = ["dumate", "qianfan-desktop-app"]
+conflicts = ["dumate", "qianfan-desktop-app"]
+
+[version]
+from = "origin"
+origin = "linux"
+
+[origins.linux]
+type = "deb-control"
+url = "https://dumate-app-public.cdn.bcebos.com/release-info/linux-artifacts/Dumate-linux-amd64-latest.deb"
+
+[inputs.sources.deb-x86_64]
+from = "origin-url"
+origin = "linux"
+arch = "x86_64"
+rename = '''${pkgname}-${pkgver}-x86_64.deb'''
+
+[package]
+install_bin_path = "/usr/bin/dumate"
+binary_source_path = "/opt/DuMate/qianfan-desktop-app"
+
+[install]
+mode = "generated"
+hints = [
+  ":: DuMate is installed under /opt/DuMate. Start it from your application menu or run: dumate",
+  ":: Upstream also ships an electron-updater feed. Update this package with pacman; do not let the built-in updater replace packaged files.",
+]
+
+[service]
+mode = "none"
+
+[tests]
+paths = [
+  "/opt/DuMate/qianfan-desktop-app",
+  "/usr/share/applications/qianfan-desktop-app.desktop",
+  "/usr/share/icons/hicolor/256x256/apps/qianfan-desktop-app.png",
+]
+executables = [
+  "/usr/bin/dumate",
+]
+commands = [
+  "! ldd /opt/DuMate/qianfan-desktop-app | grep -q 'not found'",
+]
